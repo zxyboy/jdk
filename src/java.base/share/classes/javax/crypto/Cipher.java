@@ -712,7 +712,7 @@ public class Cipher {
         String paddingError = null;
         for (Transform tr : transforms) {
             Service s = provider.getService("Cipher", tr.transform);
-            if (s == null) {
+            if (s == null || !ProvidersFilter.isAllowed(s)) {
                 continue;
             }
             if (providerChecked == false) {
