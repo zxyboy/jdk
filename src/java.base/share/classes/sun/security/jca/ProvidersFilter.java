@@ -531,10 +531,11 @@ public final class ProvidersFilter {
                         //                                       ^^^
                         state = ParsingState.PRE_PATTERN;
                     } else {
-                        throw new ParserException("Only whitespace characters" +
-                                " are valid after a pattern. Whitespaces that" +
-                                " are part of a provider name, service type " +
-                                "or algorithm must be escaped.", this);
+                        throw new ParserException("Unescaped whitespaces are " +
+                                "only valid at the end of a pattern. " +
+                                "Whitespace characters internal to a " +
+                                "provider name, service type or algorithm " +
+                                "must be escaped.", this);
                     }
                 } else {
                     // Should not reach.
