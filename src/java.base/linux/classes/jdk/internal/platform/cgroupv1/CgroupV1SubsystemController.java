@@ -69,8 +69,8 @@ public class CgroupV1SubsystemController implements CgroupSubsystemController {
     }
 
     @Override
-    public String path() {
-        return path;
+    public String path(int dir_ix) {
+        return dir_ix == 0 ? path : null;
     }
 
     public static long getLongEntry(CgroupSubsystemController controller, String param, String entryname) {

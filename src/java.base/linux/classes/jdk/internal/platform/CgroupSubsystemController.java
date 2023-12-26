@@ -44,7 +44,7 @@ public interface CgroupSubsystemController {
 
     public static final String EMPTY_STR = "";
 
-    public String path();
+    public String path(int dir_ix);
 
     /**
      * getStringValue
@@ -58,16 +58,20 @@ public interface CgroupSubsystemController {
      * @return Returns the contents of the file specified by param or null if
      *         an error occurs.
      */
-    public static String getStringValue(CgroupSubsystemController controller, String param) {
+    public static String getStringValue(CgroupSubsystemController controller, int dir_ix, String param) {
         if (controller == null) return null;
 
         try {
-            return CgroupUtil.readStringValue(controller, param);
+            return CgroupUtil.readStringValue(controller, dir_ix, param);
         }
         catch (IOException e) {
             return null;
         }
 
+    }
+
+    public static String getStringValue(CgroupSubsystemController controller, String param) {
+        return getStringValue(controller, 0 /* dir_ix */, param);
     }
 
     /**
@@ -92,7 +96,7 @@ public interface CgroupSubsystemController {
             return retval;
         }
         try {
-            Path filePath = Paths.get(controller.path(), param);
+            Path filePath = Paths.get(controller.path(0), param);
             List<String> lines = CgroupUtil.readAllLinesPrivileged(filePath);
             for (String line : lines) {
                 if (line.startsWith(match)) {
@@ -161,7 +165,7 @@ public interface CgroupSubsystemController {
     public static long getLongEntry(CgroupSubsystemController controller, String param, String entryname, long defaultRetval) {
         if (controller == null) return defaultRetval;
 
-        try (Stream<String> lines = CgroupUtil.readFilePrivileged(Paths.get(controller.path(), param))) {
+        try (Stream<String> lines = CgroupUtil.readFilePrivileged(Paths.get(controller.path(0), param))) {
 
             Optional<String> result = lines.map(line -> line.split(" "))
                                            .filter(line -> (line.length == 2 &&

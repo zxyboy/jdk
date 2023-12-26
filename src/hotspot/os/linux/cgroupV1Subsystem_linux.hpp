@@ -48,7 +48,7 @@ class CgroupV1Controller: public CgroupController {
     }
 
     virtual void set_subsystem_path(char *cgroup_path);
-    char *subsystem_path() { return _path; }
+    char *subsystem_path(size_t ix) { return ix == 0 ? _path : nullptr; }
 };
 
 class CgroupV1MemoryController: public CgroupV1Controller {

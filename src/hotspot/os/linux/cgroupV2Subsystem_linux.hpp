@@ -35,17 +35,14 @@ class CgroupV2Controller: public CgroupController {
     char *_cgroup_path;
 
     /* Constructed full path to the subsystem directory */
-    char *_path;
+    size_t _paths_size;
+    char **_paths;
     static char* construct_path(char* mount_path, char *cgroup_path);
 
   public:
-    CgroupV2Controller(char * mount_path, char *cgroup_path) {
-      _mount_path = mount_path;
-      _cgroup_path = os::strdup(cgroup_path);
-      _path = construct_path(mount_path, cgroup_path);
-    }
+    CgroupV2Controller(char * mount_path, char *cgroup_path);
 
-    char *subsystem_path() { return _path; }
+    char *subsystem_path(size_t ix) { return ix < _paths_size ? _paths[ix] : nullptr; }
 };
 
 class CgroupV2Subsystem: public CgroupSubsystem {
@@ -56,12 +53,14 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     CachingCgroupController* _memory = nullptr;
     CachingCgroupController* _cpu = nullptr;
 
-    char *mem_limit_val();
-    char *mem_swp_limit_val();
+    char *mem_limit_val(size_t dir_ix);
+    char *mem_swp_limit_val(size_t dir_ix);
     char *mem_swp_current_val();
     char *mem_soft_limit_val();
     char *cpu_quota_val();
     char *pids_max_val();
+
+    jlong dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size_t dir_ix), char *first_val = nullptr);
 
   public:
     CgroupV2Subsystem(CgroupController * unified) {

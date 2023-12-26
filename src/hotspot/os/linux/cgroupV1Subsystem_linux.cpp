@@ -247,13 +247,13 @@ void CgroupV1Subsystem::print_version_specific_info(outputStream* st) {
 }
 
 char * CgroupV1Subsystem::cpu_cpuset_cpus() {
-  GET_CONTAINER_INFO_CPTR(cptr, _cpuset, "/cpuset.cpus",
+  GET_CONTAINER_INFO_CPTR(cptr, _cpuset, 0, "/cpuset.cpus",
                      "cpuset.cpus is: %s", "%1023s", cpus, 1024);
   return os::strdup(cpus);
 }
 
 char * CgroupV1Subsystem::cpu_cpuset_memory_nodes() {
-  GET_CONTAINER_INFO_CPTR(cptr, _cpuset, "/cpuset.mems",
+  GET_CONTAINER_INFO_CPTR(cptr, _cpuset, 0, "/cpuset.mems",
                      "cpuset.mems is: %s", "%1023s", mems, 1024);
   return os::strdup(mems);
 }
@@ -301,7 +301,7 @@ int CgroupV1Subsystem::cpu_shares() {
 
 
 char* CgroupV1Subsystem::pids_max_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _pids, "/pids.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _pids, 0, "/pids.max",
                      "Maximum number of tasks is: %s", "%1023s", pidsmax, 1024);
   return os::strdup(pidsmax);
 }

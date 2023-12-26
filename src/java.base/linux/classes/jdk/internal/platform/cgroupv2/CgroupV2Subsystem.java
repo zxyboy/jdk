@@ -240,10 +240,28 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
         return CgroupV2SubsystemController.getLongEntry(unified, "memory.events", "max");
     }
 
+    private long dirIterate(String param, String firstVal) {
+        long totalLimit = -1;
+        for (int dir_ix = 0;; ++dir_ix) {
+            String strLimit = dir_ix == 0 && firstVal != null ? firstVal : CgroupSubsystemController.getStringValue(unified, dir_ix, param);
+            if (strLimit == null && dir_ix > 0) {
+                break;
+            }
+            long limit = CgroupSubsystem.limitFromString(strLimit);
+            if (limit != -1 && (totalLimit == -1 || limit < totalLimit)) {
+                totalLimit = limit;
+            }
+        }
+        return totalLimit;
+    }
+
+    private long dirIterate(String param) {
+        return dirIterate(param, null);
+    }
+
     @Override
     public long getMemoryLimit() {
-        String strVal = CgroupSubsystemController.getStringValue(unified, "memory.max");
-        return CgroupSubsystem.limitFromString(strVal);
+        return dirIterate("memory.max");
     }
 
     @Override
@@ -265,13 +283,13 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
      */
     @Override
     public long getMemoryAndSwapLimit() {
-        String strVal = CgroupSubsystemController.getStringValue(unified, "memory.swap.max");
+        String firstVal = CgroupSubsystemController.getStringValue(unified, 0, "memory.swap.max");
         // We only get a null string when file memory.swap.max doesn't exist.
         // In that case we return the memory limit without any swap.
-        if (strVal == null) {
+        if (firstVal == null) {
             return getMemoryLimit();
         }
-        long swapLimit = CgroupSubsystem.limitFromString(strVal);
+        long swapLimit = dirIterate("memory.swap.max", firstVal);
         if (swapLimit >= 0) {
             long memoryLimit = getMemoryLimit();
             assert memoryLimit >= 0;
@@ -329,7 +347,7 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
 
     private long sumTokensIOStat(Function<String, Long> mapFunc) {
         try {
-            return CgroupUtil.readFilePrivileged(Paths.get(unified.path(), "io.stat"))
+            return CgroupUtil.readFilePrivileged(Paths.get(unified.path(0), "io.stat"))
                                 .map(mapFunc)
                                 .collect(Collectors.summingLong(e -> e));
         } catch (UncheckedIOException | IOException e) {

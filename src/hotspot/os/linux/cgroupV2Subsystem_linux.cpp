@@ -90,19 +90,19 @@ int CgroupV2Subsystem::cpu_quota() {
 }
 
 char * CgroupV2Subsystem::cpu_cpuset_cpus() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/cpuset.cpus",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/cpuset.cpus",
                      "cpuset.cpus is: %s", "%1023s", cpus, 1024);
   return os::strdup(cpus);
 }
 
 char* CgroupV2Subsystem::cpu_quota_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/cpu.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/cpu.max",
                      "Raw value for CPU quota is: %s", "%1023s %*d", quota, 1024);
   return os::strdup(quota);
 }
 
 char * CgroupV2Subsystem::cpu_cpuset_memory_nodes() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/cpuset.mems",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/cpuset.mems",
                      "cpuset.mems is: %s", "%1023s", mems, 1024);
   return os::strdup(mems);
 }
@@ -140,9 +140,24 @@ jlong CgroupV2Subsystem::memory_max_usage_in_bytes() {
 }
 
 char* CgroupV2Subsystem::mem_soft_limit_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.low",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.low",
                          "Memory Soft Limit is: %s", "%1023s", mem_soft_limit_str, 1024);
   return os::strdup(mem_soft_limit_str);
+}
+
+jlong CgroupV2Subsystem::dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size_t dir_ix), char *first_val) {
+  jlong total_limit = -1;
+  for (size_t dir_ix = 0;; ++dir_ix) {
+    char *limit_str = dir_ix == 0 && first_val ? first_val : (this->*method_ptr)(dir_ix);
+    if (limit_str == nullptr && dir_ix) {
+      break;
+    }
+    jlong limit = limit_from_str(limit_str);
+    if (limit != -1 && (total_limit == -1 || limit < total_limit)) {
+      total_limit = limit;
+    }
+  }
+  return total_limit;
 }
 
 // Note that for cgroups v2 the actual limits set for swap and
@@ -151,14 +166,14 @@ char* CgroupV2Subsystem::mem_soft_limit_val() {
 // compound value we need to sum the two values. Setting a swap limit
 // without also setting a memory limit is not allowed.
 jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
-  char* mem_swp_limit_str = mem_swp_limit_val();
-  if (mem_swp_limit_str == nullptr) {
+  char *first_val = mem_swp_limit_val(0);
+  if (first_val == nullptr) {
     // Some container tests rely on this trace logging to happen.
     log_trace(os, container)("Memory and Swap Limit is: %d", OSCONTAINER_ERROR);
     // swap disabled at kernel level, treat it as no swap
     return read_memory_limit_in_bytes();
   }
-  jlong swap_limit = limit_from_str(mem_swp_limit_str);
+  jlong swap_limit = dir_iterate(&CgroupV2Subsystem::mem_swp_limit_val, first_val);
   if (swap_limit >= 0) {
     jlong memory_limit = read_memory_limit_in_bytes();
     assert(memory_limit >= 0, "swap limit without memory limit?");
@@ -168,15 +183,15 @@ jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
   return swap_limit;
 }
 
-char* CgroupV2Subsystem::mem_swp_limit_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.swap.max",
+char* CgroupV2Subsystem::mem_swp_limit_val(size_t dir_ix) {
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, dir_ix, "/memory.swap.max",
                          "Memory and Swap Limit is: %s", "%1023s", mem_swp_limit_str, 1024);
   return os::strdup(mem_swp_limit_str);
 }
 
 // memory.swap.current : total amount of swap currently used by the cgroup and its descendants
 char* CgroupV2Subsystem::mem_swp_current_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.swap.current",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.swap.current",
                          "Swap currently used is: %s", "%1023s", mem_swp_current_str, 1024);
   return os::strdup(mem_swp_current_str);
 }
@@ -190,20 +205,19 @@ char* CgroupV2Subsystem::mem_swp_current_val() {
  *    -1 for unlimited, OSCONTAINER_ERROR for an error
  */
 jlong CgroupV2Subsystem::read_memory_limit_in_bytes() {
-  char * mem_limit_str = mem_limit_val();
-  jlong limit = limit_from_str(mem_limit_str);
+  jlong total_limit = dir_iterate(&CgroupV2Subsystem::mem_limit_val);
   if (log_is_enabled(Trace, os, container)) {
-    if (limit == -1) {
+    if (total_limit == -1) {
       log_trace(os, container)("Memory Limit is: Unlimited");
     } else {
-      log_trace(os, container)("Memory Limit is: " JLONG_FORMAT, limit);
+      log_trace(os, container)("Memory Limit is: " JLONG_FORMAT, total_limit);
     }
   }
-  return limit;
+  return total_limit;
 }
 
-char* CgroupV2Subsystem::mem_limit_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.max",
+char* CgroupV2Subsystem::mem_limit_val(size_t dir_ix) {
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, dir_ix, "/memory.max",
                          "Raw value for memory limit is: %s", "%1023s", mem_limit_str, 1024);
   return os::strdup(mem_limit_str);
 }
@@ -212,8 +226,7 @@ void CgroupV2Subsystem::print_version_specific_info(outputStream* st) {
   char* mem_swp_current_str = mem_swp_current_val();
   jlong swap_current = limit_from_str(mem_swp_current_str);
 
-  char* mem_swp_limit_str = mem_swp_limit_val();
-  jlong swap_limit = limit_from_str(mem_swp_limit_str);
+  jlong swap_limit = dir_iterate(&CgroupV2Subsystem::mem_swp_limit_val);
 
   OSContainer::print_container_helper(st, swap_current, "memory_swap_current_in_bytes");
   OSContainer::print_container_helper(st, swap_limit, "memory_swap_max_limit_in_bytes");
@@ -229,7 +242,7 @@ char* CgroupV2Controller::construct_path(char* mount_path, char *cgroup_path) {
 }
 
 char* CgroupV2Subsystem::pids_max_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/pids.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/pids.max",
                      "Maximum number of tasks is: %s", "%1023s", pidsmax, 1024);
   return os::strdup(pidsmax);
 }
@@ -260,4 +273,25 @@ jlong CgroupV2Subsystem::pids_current() {
   GET_CONTAINER_INFO(jlong, _unified, "/pids.current",
                      "Current number of tasks is: ", JLONG_FORMAT, JLONG_FORMAT, pids_current);
   return pids_current;
+}
+
+/* CgroupV2Controller
+ *
+ * Constructor, cgroup_path is enumerated for each directory and the basename
+ */
+CgroupV2Controller::CgroupV2Controller(char *mount_path, char *cgroup_path) {
+  _mount_path = mount_path;
+  _cgroup_path = os::strdup(cgroup_path);
+  _paths_size = 0;
+  for (const char *cs = _cgroup_path; (cs = strchr(cs, '/')); ++cs)
+    ++_paths_size;
+  _paths = (char **)os::malloc(_paths_size * sizeof(*_paths), mtInternal);
+  assert(_cgroup_path[0] == '/', "_cgroup_path should start with a slash ('/')");
+  size_t ix = 0;
+  for (char *s; (s = strrchr(_cgroup_path, '/'));) {
+    _paths[ix++] = construct_path(mount_path, _cgroup_path);
+    *s = 0;
+  }
+  assert(ix == _paths_size, "parsing of cgroup_path failed");
+  strcpy(_cgroup_path, cgroup_path);
 }

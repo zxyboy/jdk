@@ -73,7 +73,7 @@ typedef char * cptr;
 
 class CgroupController: public CHeapObj<mtInternal> {
   public:
-    virtual char *subsystem_path() = 0;
+    virtual char *subsystem_path(size_t ix) = 0;
 };
 
 PRAGMA_DIAG_PUSH
@@ -85,6 +85,7 @@ PRAGMA_FORMAT_NONLITERAL_IGNORED
 // scan_fmt uses scanf() syntax.
 // Return value: 0 on match, OSCONTAINER_ERROR on error.
 template <typename T> int subsystem_file_line_contents(CgroupController* c,
+                                              size_t dir_ix,
                                               const char *filename,
                                               const char *key,
                                               const char *scan_fmt,
@@ -93,13 +94,17 @@ template <typename T> int subsystem_file_line_contents(CgroupController* c,
     log_debug(os, container)("subsystem_file_line_contents: CgroupController* is null");
     return OSCONTAINER_ERROR;
   }
-  if (c->subsystem_path() == nullptr) {
+  if (c->subsystem_path(0) == nullptr) {
     log_debug(os, container)("subsystem_file_line_contents: subsystem path is null");
     return OSCONTAINER_ERROR;
   }
 
   stringStream file_path;
-  file_path.print_raw(c->subsystem_path());
+  const char *dir = c->subsystem_path(dir_ix);
+  if (dir == nullptr) {
+    return OSCONTAINER_ERROR;
+  }
+  file_path.print_raw(dir);
   file_path.print_raw(filename);
 
   if (file_path.size() > (MAXPATHLEN-1)) {
@@ -167,6 +172,7 @@ PRAGMA_DIAG_POP
 {                                                                         \
   int err;                                                                \
   err = subsystem_file_line_contents(subsystem,                           \
+                                     0 /* dir_ix */,                      \
                                      filename,                            \
                                      nullptr,                             \
                                      scan_fmt,                            \
@@ -179,12 +185,13 @@ PRAGMA_DIAG_POP
   log_trace(os, container)(logstring log_fmt, variable);                  \
 }
 
-#define GET_CONTAINER_INFO_CPTR(return_type, subsystem, filename,         \
+#define GET_CONTAINER_INFO_CPTR(return_type, subsystem, dir_ix, filename, \
                                logstring, scan_fmt, variable, bufsize)    \
   char variable[bufsize];                                                 \
 {                                                                         \
   int err;                                                                \
   err = subsystem_file_line_contents(subsystem,                           \
+                                     dir_ix,                              \
                                      filename,                            \
                                      nullptr,                             \
                                      scan_fmt,                            \
@@ -201,10 +208,11 @@ PRAGMA_DIAG_POP
 {                                                                         \
   int err;                                                                \
   err = subsystem_file_line_contents(controller,                          \
-                                filename,                                 \
-                                matchline,                                \
-                                scan_fmt,                                 \
-                                &variable);                               \
+                                     0 /* dir_ix */,                      \
+                                     filename,                            \
+                                     matchline,                           \
+                                     scan_fmt,                            \
+                                     &variable);                          \
   if (err != 0)                                                           \
     return (return_type) OSCONTAINER_ERROR;                               \
                                                                           \
