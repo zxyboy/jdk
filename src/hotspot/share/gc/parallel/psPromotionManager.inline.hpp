@@ -280,6 +280,8 @@ inline oop PSPromotionManager::copy_unmarked_to_survivor_space(oop o,
       push_depth(ScannerTask(PartialArrayScanTask(o)));
       TASKQUEUE_STATS_ONLY(++_arrays_chunked; ++_array_chunk_pushes);
     } else {
+      ContinuationGCSupport::transform_stack_chunk(new_obj);
+
       // we'll just push its contents
       push_contents(new_obj);
 
@@ -288,8 +290,6 @@ inline oop PSPromotionManager::copy_unmarked_to_survivor_space(oop o,
           psStringDedup::is_candidate_from_evacuation(new_obj, new_obj_is_tenured)) {
         _string_dedup_requests.add(o);
       }
-
-      ContinuationGCSupport::transform_stack_chunk(new_obj);
     }
     return new_obj;
   } else {
