@@ -254,8 +254,6 @@ inline oop PSPromotionManager::copy_unmarked_to_survivor_space(oop o,
 
   // Parallel GC claims with a release - so other threads might access this object
   // after claiming and they should see the "completed" object.
-  ContinuationGCSupport::transform_stack_chunk(new_obj);
-
   // Now we have to CAS in the header.
   // Make copy visible to threads reading the forwardee.
   oop forwardee = o->forward_to_atomic(new_obj, test_mark, memory_order_release);
@@ -290,6 +288,8 @@ inline oop PSPromotionManager::copy_unmarked_to_survivor_space(oop o,
           psStringDedup::is_candidate_from_evacuation(new_obj, new_obj_is_tenured)) {
         _string_dedup_requests.add(o);
       }
+
+      ContinuationGCSupport::transform_stack_chunk(new_obj);
     }
     return new_obj;
   } else {
