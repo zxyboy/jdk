@@ -64,7 +64,7 @@ public class NestedCgroup {
         }
     }
 
-    public static OutputAnalyzer pSystem(List<String> args, String rootFailStderr) throws Exception {
+    public static OutputAnalyzer pSystem(List<String> args, String rootFailStderr, String failExplanation) throws Exception {
         System.err.println(LINE_DELIM + " command: " + String.join(" ",args));
         System.err.println(LINE_DELIM + " command: " + String.join(" ",args));
         ProcessBuilder pb = new ProcessBuilder(args);
@@ -75,14 +75,14 @@ public class NestedCgroup {
         lineDelim(output.getStderr(), "stderr");
         System.err.println(LINE_DELIM);
         if (!rootFailStderr.isEmpty() && output.getStderr().equals(rootFailStderr + "\n")) {
-            throw new SkippedException("Missing root permission failure stderr has been found: " + rootFailStderr);
+            throw new SkippedException(failExplanation + ": " + rootFailStderr);
         }
         Asserts.assertEQ(0, exitValue, "Process returned unexpected exit code: " + exitValue);
         return output;
     }
 
     public static OutputAnalyzer pSystem(List<String> args) throws Exception {
-        return pSystem(args, "");
+        return pSystem(args, "", "");
     }
 
     public static void main(String[] args) throws Exception {
@@ -91,13 +91,13 @@ public class NestedCgroup {
         cgdelete.add("-r");
         cgdelete.add("-g");
         cgdelete.add(CONTROLLERS_PATH_OUTER);
-        pSystem(cgdelete);
+        pSystem(cgdelete, "cgdelete: libcgroup initialization failed: Cgroup is not mounted", "cgroup/cgroup2 is not mounted");
 
         List<String> cgcreate = new ArrayList<>();
         cgcreate.add("cgcreate");
         cgcreate.add("-g");
         cgcreate.add(CONTROLLERS_PATH);
-        pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed");
+        pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed", "Missing root permission");
 
         String mountInfo;
         try {
