@@ -307,16 +307,16 @@ public class CgroupV1Subsystem implements CgroupSubsystem, CgroupV1Metrics {
     }
 
     public long getMemoryLimit() {
-        long retval = getLongValue(memory, "memory.limit_in_bytes");
-        if (retval > CgroupV1SubsystemController.UNLIMITED_MIN) {
-            if (memory.isHierarchical()) {
-                // memory.limit_in_bytes returned unlimited, attempt
-                // hierarchical memory limit
-                String match = "hierarchical_memory_limit";
-                retval = CgroupV1SubsystemController.getLongValueMatchingLine(memory,
-                                                            "memory.stat",
-                                                            match);
-            }
+        long retval;
+        if (memory.isHierarchical()) {
+            // memory.limit_in_bytes returned unlimited, attempt
+            // hierarchical memory limit
+            String match = "hierarchical_memory_limit";
+            retval = CgroupV1SubsystemController.getLongValueMatchingLine(memory,
+                                                        "memory.stat",
+                                                        match);
+        } else {
+            retval = getLongValue(memory, "memory.limit_in_bytes");
         }
         return CgroupV1SubsystemController.longValOrUnlimited(retval);
     }

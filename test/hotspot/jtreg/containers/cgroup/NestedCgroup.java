@@ -50,12 +50,13 @@ public class NestedCgroup {
     public static final String CGROUP_OUTER = "jdktest" + ProcessHandle.current().pid();
     public static final String CGROUP_INNER = "inner";
     public static final String CONTROLLERS_PATH_OUTER = "memory:" + CGROUP_OUTER;
-    public static final String CONTROLLERS_PATH = CONTROLLERS_PATH_OUTER + "/" + CGROUP_INNER;
+    public static final String CONTROLLERS_PATH_INNER = CONTROLLERS_PATH_OUTER + "/" + CGROUP_INNER;
     public static final String LINE_DELIM = "-".repeat(80);
     public static final String MOUNTINFO = "/proc/self/mountinfo";
 
     // A real usage on x86_64 fits in 39 MiB.
-    public static final int MEMORY_MAX = 500 * 1024 * 1024;
+    public static final int MEMORY_MAX_OUTER = 500 * 1024 * 1024;
+    public static final int MEMORY_MAX_INNER = MEMORY_MAX_OUTER * 2;
     public static final String MEMORY_LIMIT_MB = "500.00M";
 
     public static void lineDelim(String str, String label) {
@@ -108,7 +109,7 @@ public class NestedCgroup {
         List<String> cgcreate = new ArrayList<>();
         cgcreate.add("cgcreate");
         cgcreate.add("-g");
-        cgcreate.add(CONTROLLERS_PATH);
+        cgcreate.add(CONTROLLERS_PATH_INNER);
         pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed", "Missing root permission", "");
 
         String mountInfo;
@@ -126,13 +127,16 @@ public class NestedCgroup {
         String sysFsCgroup = matcher.group(1);
         boolean isCgroup2 = matcher.group(2) != null;
         System.err.println(LINE_DELIM + " " + (isCgroup2 ? "cgroup2" : "cgroup1") + " mount point: " + sysFsCgroup);
-        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + (isCgroup2 ? "memory.max" : "memory.limit_in_bytes")), "" + MEMORY_MAX);
+        String memory_max_filename = isCgroup2 ? "memory.max" : "memory.limit_in_bytes";
+        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + memory_max_filename), "" + MEMORY_MAX_OUTER);
+        // CgroupV1Subsystem::read_memory_limit_in_bytes considered hierarchical_memory_limit only when inner memory.limit_in_bytes is unlimited.
+        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + CGROUP_INNER + "/" + memory_max_filename), "" + MEMORY_MAX_INNER);
 
         // Here starts a copy of ProcessTools.createJavaProcessBuilder.
         List<String> cgexec = new ArrayList<>();
         cgexec.add("cgexec");
         cgexec.add("-g");
-        cgexec.add(CONTROLLERS_PATH);
+        cgexec.add(CONTROLLERS_PATH_INNER);
         cgexec.add(JDKToolFinder.getJDKTool("java"));
         cgexec.add("-cp");
         cgexec.add(System.getProperty("java.class.path"));
@@ -141,7 +145,7 @@ public class NestedCgroup {
         cgexec.add("-version");
         OutputAnalyzer output = pSystem(cgexec);
         output.shouldMatch("^ *Memory Limit: " + MEMORY_LIMIT_MB + "$");
-        output.shouldMatch("\\[trace\\]\\[os,container\\] " + (isCgroup2 ? "" : "Hierarchical ") + "Memory Limit is: " + MEMORY_MAX + "$");
+        output.shouldMatch("\\[trace\\]\\[os,container\\] " + (isCgroup2 ? "" : "Hierarchical ") + "Memory Limit is: " + MEMORY_MAX_OUTER + "$");
 
         pSystem(cgdelete);
     }

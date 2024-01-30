@@ -89,26 +89,25 @@ void CgroupV1MemoryController::set_subsystem_path(char *cgroup_path) {
 }
 
 jlong CgroupV1Subsystem::read_memory_limit_in_bytes() {
+  CgroupV1MemoryController* mem_controller = reinterpret_cast<CgroupV1MemoryController*>(_memory->controller());
+  if (mem_controller->is_hierarchical()) {
+    GET_CONTAINER_INFO_LINE(julong, _memory->controller(), "/memory.stat", "hierarchical_memory_limit",
+                           "Hierarchical Memory Limit is: " JULONG_FORMAT, JULONG_FORMAT, hier_memlimit)
+    // Backward compatibility:
+    log_trace(os, container)("Memory Limit is: " JULONG_FORMAT, hier_memlimit);
+    if (hier_memlimit >= os::Linux::physical_memory()) {
+      log_trace(os, container)("Hierarchical Memory Limit is: Unlimited");
+      return (jlong)-1;
+    }
+    return (jlong)hier_memlimit;
+  }
   GET_CONTAINER_INFO(julong, _memory->controller(), "/memory.limit_in_bytes",
                      "Memory Limit is: ", JULONG_FORMAT, JULONG_FORMAT, memlimit);
-
   if (memlimit >= os::Linux::physical_memory()) {
     log_trace(os, container)("Non-Hierarchical Memory Limit is: Unlimited");
-    CgroupV1MemoryController* mem_controller = reinterpret_cast<CgroupV1MemoryController*>(_memory->controller());
-    if (mem_controller->is_hierarchical()) {
-      GET_CONTAINER_INFO_LINE(julong, _memory->controller(), "/memory.stat", "hierarchical_memory_limit",
-                             "Hierarchical Memory Limit is: " JULONG_FORMAT, JULONG_FORMAT, hier_memlimit)
-      if (hier_memlimit >= os::Linux::physical_memory()) {
-        log_trace(os, container)("Hierarchical Memory Limit is: Unlimited");
-      } else {
-        return (jlong)hier_memlimit;
-      }
-    }
     return (jlong)-1;
   }
-  else {
-    return (jlong)memlimit;
-  }
+  return (jlong)memlimit;
 }
 
 /* read_mem_swap
