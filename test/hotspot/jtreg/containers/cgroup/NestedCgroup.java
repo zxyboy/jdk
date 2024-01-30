@@ -27,7 +27,6 @@
  * @requires os.family == "linux"
  * @requires vm.flagless
  * @library /testlibrary /test/lib
- * @run driver jdk.test.lib.helpers.ClassFileInstaller
  * @run main/othervm NestedCgroup
  */
 
