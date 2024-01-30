@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.nio.file.NoSuchFileException;
+import java.io.IOException;
 
 public class NestedCgroup {
     public static final String CGROUP_OUTER = "jdktest" + ProcessHandle.current().pid();
@@ -64,8 +65,7 @@ public class NestedCgroup {
         }
     }
 
-    public static OutputAnalyzer pSystem(List<String> args, String rootFailStderr, String failExplanation) throws Exception {
-        System.err.println(LINE_DELIM + " command: " + String.join(" ",args));
+    public static OutputAnalyzer pSystem(List<String> args, String failStderr, String failExplanation, String ignoreStderr) throws Exception {
         System.err.println(LINE_DELIM + " command: " + String.join(" ",args));
         ProcessBuilder pb = new ProcessBuilder(args);
         Process process = pb.start();
@@ -74,15 +74,18 @@ public class NestedCgroup {
         lineDelim(output.getStdout(), "stdout");
         lineDelim(output.getStderr(), "stderr");
         System.err.println(LINE_DELIM);
-        if (!rootFailStderr.isEmpty() && output.getStderr().equals(rootFailStderr + "\n")) {
-            throw new SkippedException(failExplanation + ": " + rootFailStderr);
+        if (!failStderr.isEmpty() && output.getStderr().equals(failStderr + "\n")) {
+            throw new SkippedException(failExplanation + ": " + failStderr);
+        }
+        if (!ignoreStderr.isEmpty() && output.getStderr().equals(ignoreStderr + "\n")) {
+            return output;
         }
         Asserts.assertEQ(0, exitValue, "Process returned unexpected exit code: " + exitValue);
         return output;
     }
 
     public static OutputAnalyzer pSystem(List<String> args) throws Exception {
-        return pSystem(args, "", "");
+        return pSystem(args, "", "", "");
     }
 
     public static void main(String[] args) throws Exception {
@@ -91,13 +94,22 @@ public class NestedCgroup {
         cgdelete.add("-r");
         cgdelete.add("-g");
         cgdelete.add(CONTROLLERS_PATH_OUTER);
-        pSystem(cgdelete, "cgdelete: libcgroup initialization failed: Cgroup is not mounted", "cgroup/cgroup2 is not mounted");
+        try {
+            pSystem(cgdelete,
+                "cgdelete: libcgroup initialization failed: Cgroup is not mounted", "cgroup/cgroup2 is not mounted",
+                "cgdelete: cannot remove group '" + CGROUP_OUTER + "': No such file or directory");
+        } catch (IOException e) {
+            if (e.toString().equals("java.io.IOException: Cannot run program \"cgdelete\": error=2, No such file or directory")) {
+                throw new SkippedException("libcgroup-tools is not installed");
+            }
+            throw e;
+        }
 
         List<String> cgcreate = new ArrayList<>();
         cgcreate.add("cgcreate");
         cgcreate.add("-g");
         cgcreate.add(CONTROLLERS_PATH);
-        pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed", "Missing root permission");
+        pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed", "Missing root permission", "");
 
         String mountInfo;
         try {
@@ -106,14 +118,15 @@ public class NestedCgroup {
             throw new SkippedException("Cannot open " + MOUNTINFO);
         }
 
-        Matcher matcher = Pattern.compile("^(?:\\S+\\s+){4}(\\S+)\\s.*\\scgroup2(?:\\s+\\S+){2}$", Pattern.MULTILINE).matcher(mountInfo);
+        Matcher matcher = Pattern.compile("^(?:\\S+\\s+){4}(\\S+)\\s.*\\scgroup(?:(2)(?:\\s+\\S+){2}|\\s+\\S+\\s+(?:\\S*,)?memory(?:,\\S*)?)$", Pattern.MULTILINE).matcher(mountInfo);
         if (!matcher.find()) {
             System.err.println(mountInfo);
-            throw new SkippedException("cgroup2 filesystem mount point not found");
+            throw new SkippedException("cgroup/cgroup2 filesystem mount point not found");
         }
         String sysFsCgroup = matcher.group(1);
-        System.err.println(LINE_DELIM + " cgroup2 mount point: " + sysFsCgroup);
-        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/memory.max"), "" + MEMORY_MAX);
+        boolean isCgroup2 = matcher.group(2) != null;
+        System.err.println(LINE_DELIM + " " + (isCgroup2 ? "cgroup2" : "cgroup1") + " mount point: " + sysFsCgroup);
+        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + (isCgroup2 ? "memory.max" : "memory.limit_in_bytes")), "" + MEMORY_MAX);
 
         // Here starts a copy of ProcessTools.createJavaProcessBuilder.
         List<String> cgexec = new ArrayList<>();
@@ -128,7 +141,7 @@ public class NestedCgroup {
         cgexec.add("-version");
         OutputAnalyzer output = pSystem(cgexec);
         output.shouldMatch("^ *Memory Limit: " + MEMORY_LIMIT_MB + "$");
-        output.shouldMatch("\\[trace\\]\\[os,container\\] Memory Limit is: " + MEMORY_MAX + "$");
+        output.shouldMatch("\\[trace\\]\\[os,container\\] " + (isCgroup2 ? "" : "Hierarchical ") + "Memory Limit is: " + MEMORY_MAX + "$");
 
         pSystem(cgdelete);
     }
