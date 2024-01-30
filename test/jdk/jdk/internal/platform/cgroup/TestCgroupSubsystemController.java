@@ -210,7 +210,7 @@ public class TestCgroupSubsystemController {
         }
 
         @Override
-        public String path() {
+        public String path(int dir_ix) {
             return path;
         }
 
