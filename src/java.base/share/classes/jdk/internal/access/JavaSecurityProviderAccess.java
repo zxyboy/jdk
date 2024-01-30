@@ -33,5 +33,5 @@ import java.util.Set;
 public interface JavaSecurityProviderAccess {
     Set<Provider.Service> getServicesNotAllowed(Provider p);
     List<String> getAliases(Provider.Service svc);
-    boolean getIsAllowed(Provider.Service svc);
+    boolean isAllowed(Provider.Service svc);
 }

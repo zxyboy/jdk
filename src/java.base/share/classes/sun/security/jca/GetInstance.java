@@ -135,6 +135,11 @@ public class GetInstance {
         return list.getServices(ids);
     }
 
+    public static List<Service> getCipherServices(List<ServiceId> ids) {
+        ProviderList list = Providers.getProviderList();
+        return list.getCipherServices(ids);
+    }
+
     /*
      * For all the getInstance() methods below:
      * @param type the type of engine (e.g. MessageDigest)

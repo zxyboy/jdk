@@ -40,6 +40,7 @@ import jdk.internal.access.JavaSecurityProviderAccess;
 import jdk.internal.access.SharedSecrets;
 import jdk.internal.event.SecurityProviderServiceEvent;
 import sun.security.jca.ProvidersFilter;
+import sun.security.util.AlgorithmDecomposer;
 
 /**
  * This class represents a "provider" for the
@@ -134,8 +135,8 @@ public abstract class Provider extends Properties {
                     }
 
                     @Override
-                    public boolean getIsAllowed(Service svc) {
-                        return svc.getIsAllowed();
+                    public boolean isAllowed(Service svc) {
+                        return svc.isAllowed();
                     }
                 });
     }
@@ -1018,7 +1019,7 @@ public abstract class Provider extends Properties {
                     // set. To avoid duplicates, we skip alias keys and use
                     // the version of the service pointed by the algorithm key.
                     if (e.getKey().equals(svc.algKey) &&
-                            svc.getIsAllowed() == allowed && isValid(svc)) {
+                            svc.isAllowed() == allowed && isValid(svc)) {
                         set.add(svc);
                     }
                 }
@@ -1027,8 +1028,8 @@ public abstract class Provider extends Properties {
 
             Service getAllowed(ServiceKey key) {
                 Service svc = services.get(key);
-                return svc != null && isValid(svc) && svc.getIsAllowed() ?
-                        svc : null;
+                return svc != null && isValid(svc) &&
+                        svc.isAllowed() ? svc : null;
             }
 
             void clear() {
@@ -1095,7 +1096,7 @@ public abstract class Provider extends Properties {
                 // Current API are immutable, and services added with the Legacy
                 // API are copied before modified.
                 if (svc.isAllowed == null) {
-                    svc.computeIsAllowed();
+                    svc.computeSvcAllowed();
                 }
 
                 // The service will be registered to its provider's ServicesMap.
@@ -1293,7 +1294,7 @@ public abstract class Provider extends Properties {
                     }
                 }
 
-                notifyChanges(mi.svc.getIsAllowed());
+                notifyChanges(mi.svc.isAllowed());
 
                 Provider.this.checkAndUpdateSecureRandom(mi.svc.algKey, false);
 
@@ -1339,7 +1340,7 @@ public abstract class Provider extends Properties {
                         // if the service exists already, this is not necessary
                         // because a change in the class name does not affect
                         // the previous filter decision.
-                        newSvc.computeIsAllowed();
+                        newSvc.computeSvcAllowed();
                     }
 
                     newSvc.className = className;
@@ -1408,7 +1409,10 @@ public abstract class Provider extends Properties {
                     newSvc.addAliasKey(aliasKey);
 
                     // The new alias can modify the Providers filter decision.
-                    newSvc.computeIsAllowed();
+                    newSvc.computeSvcAllowed();
+                    if (newSvc.cipherTransformsAllowed != null) {
+                        newSvc.cipherTransformsAllowed.clear();
+                    }
 
                     // Keep track of the Properties map entry for further
                     // changes in the future (i.e. removal of the service).
@@ -1512,7 +1516,10 @@ public abstract class Provider extends Properties {
 
                         // The removed alias can modify the Providers filter
                         // decision.
-                        newSvc.computeIsAllowed();
+                        newSvc.computeSvcAllowed();
+                        if (newSvc.cipherTransformsAllowed != null) {
+                            newSvc.cipherTransformsAllowed.clear();
+                        }
 
                         // Update the Properties map to reflect the alias
                         // removal. Note: oldPropKey cannot be null because
@@ -1627,15 +1634,15 @@ public abstract class Provider extends Properties {
                 legacySvcKeys.add(oldMi.algKey);
 
                 if (oldMi.svc != null &&
-                        oldMi.svc.getIsAllowed() != newSvc.getIsAllowed()) {
+                        oldMi.svc.isAllowed() != newSvc.isAllowed()) {
                     // The updated service transitioned between allowed and not
                     // allowed Providers filter states. Notify according to the
                     // previous state.
-                    notifyChanges(oldMi.svc.getIsAllowed());
+                    notifyChanges(oldMi.svc.isAllowed());
                 }
                 // Notify a change according to the current Providers filter
                 // state.
-                notifyChanges(newSvc.getIsAllowed());
+                notifyChanges(newSvc.isAllowed());
 
                 return opResult;
             }
@@ -2267,7 +2274,7 @@ public abstract class Provider extends Properties {
             // as providers may override putService(...)/getService(...) and
             // return their own Service objects
             Service svc = getService("SecureRandom", algKey.originalAlgorithm);
-            if (svc != null && svc.getIsAllowed()) {
+            if (svc != null && svc.isAllowed()) {
                 return svc;
             }
         }
@@ -2471,9 +2478,15 @@ public abstract class Provider extends Properties {
         // services (still) not added to a ServicesMap, value is an empty map.
         private Map<ServiceKey, String> aliasKeys;
 
-        // Cached Providers filter state for this service. Value is null when
-        // not decided.
+        // Cache with the Providers filter decision for this service. Value is
+        // null when not decided.
         private Boolean isAllowed;
+
+        // Cache with transformation - filter decision entries. Transformations
+        // in this cache are based on this service algorithm or aliases, but
+        // are not necessarily supported (further evaluation is needed). For
+        // Cipher service types only (lazily initialized), null otherwise.
+        private Map<String, Boolean> cipherTransformsAllowed;
 
         // Reference to the cached implementation Class object.
         // Will be a Class if this service is loaded from the built-in
@@ -2545,6 +2558,10 @@ public abstract class Provider extends Properties {
             }
             isAllowed = svc.isAllowed;
             registered = false;
+            if (svc.cipherTransformsAllowed != null) {
+                cipherTransformsAllowed = new ConcurrentHashMap<>(
+                        svc.cipherTransformsAllowed);
+            }
 
             // Do not copy cached fields because the updated service may have a
             // different class name or attributes and these values have to be
@@ -2616,7 +2633,7 @@ public abstract class Provider extends Properties {
          */
         public Service(Provider provider, String type, String algorithm,
                 String className, List<String> aliases,
-                Map<String,String> attributes) {
+                Map<String, String> attributes) {
             if ((provider == null) || (type == null) ||
                     (algorithm == null) || (className == null)) {
                 throw new NullPointerException();
@@ -2637,7 +2654,7 @@ public abstract class Provider extends Properties {
                 this.attributes = Collections.emptyMap();
             } else {
                 this.attributes = new HashMap<>();
-                for (Map.Entry<String,String> entry : attributes.entrySet()) {
+                for (Map.Entry<String, String> entry : attributes.entrySet()) {
                     this.attributes.put(new UString(entry.getKey()),
                             entry.getValue());
                 }
@@ -2678,20 +2695,117 @@ public abstract class Provider extends Properties {
          * before. In any case, if the service did not go through the filter,
          * evaluate it now and save the result.
          */
-        private boolean getIsAllowed() {
-            if (isAllowed == null) {
-                computeIsAllowed();
+        private boolean isAllowed() {
+            ProvidersFilter.CipherContext cipherContext =
+                    ProvidersFilter.CipherTransformation.getContext();
+            if (cipherContext != null) {
+                // The Cipher class is trying to create a CipherSpi instance
+                // from a service. E.g. Cipher.getInstance("transformation").
+                // The service algorithm and aliases do not match the
+                // transformation exactly. However, there could still be support
+                // for it. Evaluate the transformation according to the filter
+                // and see if the service remains on track for further
+                // assessment (e.g. Cipher.Transform::supports).
+                if ((cipherTransformsAllowed != null ||
+                        type.equals("Cipher")) &&
+                        isTransformationForSvc(cipherContext.svcSearchKey())) {
+                    return isTransformationAllowed(
+                            cipherContext.transformation());
+                } else {
+                    // Unlikely. May happen if a provider overrides
+                    // Provider::getService or Provider.Service::newInstance
+                    // and, during a Cipher service lookup, triggers a
+                    // Provider.Service::isAllowed call for a service not
+                    // related to the Cipher transformation.
+                    if (debug != null) {
+                        debug.println("Filter evaluation of a service not " +
+                                "related to a Cipher transformation (" +
+                                cipherContext.transformation() + "). Service " +
+                                "search key: " + cipherContext.svcSearchKey() +
+                                ". Service: " + this);
+                    }
+                }
             }
-            return isAllowed == Boolean.TRUE;
+            if (isAllowed == null) {
+                computeSvcAllowed();
+            }
+            return isAllowed;
+        }
+
+        /*
+         * Returns whether a key matches any of the algorithm or aliases
+         * (case insensitive).
+         */
+        private boolean isTransformationForSvc(String svcSearchKey) {
+            if (svcSearchKey.equalsIgnoreCase(algorithm)) {
+                return true;
+            }
+            for (String alias : getAliases()) {
+                if (svcSearchKey.equalsIgnoreCase(alias)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /*
+         * Returns whether a transformation potentially supported by this
+         * service is allowed by the Providers filter. Service algorithm and
+         * aliases are used to build transformation aliases.
+         */
+        private boolean isTransformationAllowed(String transformation) {
+            Boolean isTransformAllowed;
+            if (cipherTransformsAllowed == null) {
+                cipherTransformsAllowed = new ConcurrentHashMap<>();
+                isTransformAllowed = null;
+            } else {
+                isTransformAllowed =
+                        cipherTransformsAllowed.get(transformation);
+            }
+            if (isTransformAllowed == null) {
+                String[] transformParts = AlgorithmDecomposer
+                        .getTransformationTokens(transformation);
+                // transformParts has three non-empty components because
+                // transformation 1) was analyzed by
+                // Cipher::tokenizeTransformation before and 2) if it
+                // had have a single component, it would have been
+                // equal to the service algorithm or alias and not set by
+                // ProvidersFilter.CipherTransformation to reach this point.
+                assert transformParts.length == 3 :
+                        "Unexpected transformation.";
+                List<String> allAlgos =
+                        new ArrayList<>(getAliases().size() + 1);
+                allAlgos.add(algorithm);
+                allAlgos.addAll(getAliases());
+                List<String> tAliases = new ArrayList<>(allAlgos.size() - 1);
+                for (String algo : allAlgos) {
+                    // If a service algorithm or alias has multiple components,
+                    // use the first one for the transformation alias. The
+                    // second and third one (if any) are assumed to be the mode
+                    // and padding respectively, and taken from the
+                    // transformation.
+                    algo = AlgorithmDecomposer.getTransformationTokens(algo)[0];
+                    String transformAlgo = algo + "/" + transformParts[1] +
+                            "/" + transformParts[2];
+                    if (!transformAlgo.equalsIgnoreCase(transformation)) {
+                        tAliases.add(transformAlgo);
+                    }
+                }
+                isTransformAllowed = ProvidersFilter.computeSvcAllowed(
+                        provider.getName(), type, transformation, tAliases);
+                cipherTransformsAllowed.put(transformation, isTransformAllowed);
+            }
+            return isTransformAllowed;
         }
 
         /*
          * Pass the service through the Providers filter and save the result.
          * Called from ServicesMap before adding a Service to the map, and
-         * from Service::getIsAllowed to handle uncommon cases.
+         * from Service::isAllowed to handle uncommon cases.
          */
-        private void computeIsAllowed() {
-            isAllowed = ProvidersFilter.computeIsAllowed(this);
+        private void computeSvcAllowed() {
+            isAllowed = ProvidersFilter.computeSvcAllowed(
+                    provider.getName(), type, algorithm, getAliases());
         }
 
         /**
@@ -2788,9 +2902,9 @@ public abstract class Provider extends Properties {
             if (!registered) {
                 // Services never added to a ServicesMap need to be checked.
                 if (provider.getService(type, algorithm) != this ||
-                        !getIsAllowed()) {
+                        !isAllowed()) {
                     throw new NoSuchAlgorithmException("Service not " +
-                            (!getIsAllowed() ? "allowed" : "registered with " +
+                            (!isAllowed() ? "allowed" : "registered with " +
                             "Provider " + provider.getName()) + ": " + this);
                 }
                 registered = true;

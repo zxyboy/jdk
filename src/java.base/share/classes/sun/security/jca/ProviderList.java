@@ -421,12 +421,17 @@ public final class ProviderList {
         return new ServiceList(ids);
     }
 
+    public List<Service> getCipherServices(List<ServiceId> ids) {
+        return new CipherServiceList(ids);
+    }
+
     /**
      * Inner class for a List of Services. Custom List implementation in
      * order to delay Provider initialization and lookup.
      * Not thread safe.
      */
-    private final class ServiceList extends AbstractList<Service> {
+    private sealed class ServiceList extends AbstractList<Service>
+            permits CipherServiceList {
 
         // type and algorithm for simple lookup
         // avoid allocating/traversing the ServiceId list for these lookups
@@ -518,20 +523,28 @@ public final class ProviderList {
 
                 if (type != null) {
                     // simple lookup
-                    Service s = p.getService(type, algorithm);
-                    if (s != null && ProvidersFilter.isAllowed(s)) {
+                    Service s = tryGetService(p, type, algorithm);
+                    if (s != null) {
                         addService(s);
                     }
                 } else {
                     // parallel lookup
                     for (ServiceId id : ids) {
-                        Service s = p.getService(id.type, id.algorithm);
-                        if (s != null && ProvidersFilter.isAllowed(s)) {
+                        Service s = tryGetService(p, id.type, id.algorithm);
+                        if (s != null) {
                             addService(s);
                         }
                     }
                 }
             }
+        }
+
+        Service tryGetService(Provider p, String type, String algorithm) {
+            Service s = p.getService(type, algorithm);
+            if (s == null || !ProvidersFilter.isAllowed(s)) {
+                return null;
+            }
+            return s;
         }
 
         public Service get(int index) {
@@ -583,6 +596,25 @@ public final class ProviderList {
                     throw new UnsupportedOperationException();
                 }
             };
+        }
+    }
+
+    private final class CipherServiceList extends ServiceList {
+        private final String canonicalTransform;
+
+        CipherServiceList(List<ServiceId> ids) {
+            super(ids);
+            canonicalTransform = ids.getFirst().algorithm;
+        }
+
+        @Override
+        Service tryGetService(Provider p, String type, String algorithm) {
+            ProvidersFilter.CipherTransformation ct =
+                    new ProvidersFilter.CipherTransformation(
+                            canonicalTransform, algorithm);
+            try (ct) {
+                return super.tryGetService(p, type, algorithm);
+            }
         }
     }
 

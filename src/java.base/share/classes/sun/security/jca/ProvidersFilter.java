@@ -26,11 +26,13 @@
 
 package sun.security.jca;
 
+import java.io.Closeable;
 import java.nio.CharBuffer;
 import java.security.Provider;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 import jdk.internal.access.JavaSecurityProviderAccess;
@@ -69,6 +71,10 @@ public final class ProvidersFilter {
             assert priority >= 0 : "Invalid priority";
             this.result = result;
             this.priority = priority;
+        }
+
+        boolean isAllow() {
+            return result == ProvidersFilter.FilterDecision.Result.ALLOW;
         }
 
         @Override
@@ -685,22 +691,20 @@ public final class ProvidersFilter {
         // For services added to the Provider's ServicesMap (most cases), this
         // call is expected to be fast: a Provider.Service field read only. It
         // might take longer on the first time for uncommon services (see
-        // Provider.Service::getIsAllowed).
-        return jspa.getIsAllowed(svc);
+        // Provider.Service::isAllowed).
+        return jspa.isAllowed(svc);
     }
 
     /*
-     * This method is called from Provider.Service::computeIsAllowed only.
+     * This method is called from Provider.Service::computeSvcAllowed and
+     * Provider.Service::isTransformationAllowed.
      */
-    public static boolean computeIsAllowed(Provider.Service svc) {
+    public static boolean computeSvcAllowed(String providerName,
+            String svcType, String algo, List<String> aliases) {
         if (filter == null) {
             return true;
         }
-        String providerName = svc.getProvider().getName();
-        String svcType = svc.getType();
-        String algo = svc.getAlgorithm();
         FilterDecision d = isAllowed(providerName, svcType, algo);
-        List<String> aliases = jspa.getAliases(svc);
         if (debug != null && aliases.size() > 0) {
             debug.println("--------------------");
             debug.println("The queried service has aliases. Checking them " +
@@ -720,11 +724,78 @@ public final class ProvidersFilter {
             debug.println("Final decision based on " + algo + " algorithm" +
                     ": " + d);
         }
-        return d.result == FilterDecision.Result.ALLOW;
+        return d.isAllow();
     }
 
     private static FilterDecision isAllowed(String provider, String svcType,
             String svcAlgo) {
         return filter.apply(new FilterQuery(provider, svcType, svcAlgo));
+    }
+
+    /*
+     * CipherContext is an auxiliary class to bundle information required by
+     * CipherTransformation. The field "transformation" is the ongoing Cipher
+     * transformation for which a service is being looked up. The field
+     * "svcSearchKey" is the key (algorithm or alias) used to look up a
+     * service that might support the transformation.
+     */
+    public record CipherContext(String transformation, String svcSearchKey) {}
+
+    /*
+     * CipherTransformation is used from the Cipher::tryGetService,
+     * Cipher::newInstance and ProviderList.CipherServiceList::tryGetService
+     * methods for a thread to indicate that a service will be looked up for a
+     * Cipher transformation. In these cases, the service evaluation against
+     * the Providers Filter is based on the transformation and not the service
+     * algorithm or aliases. Thus, a Filter value such as
+     * "*.Cipher.AES/ECB/PKCS5Padding; !*" would allow
+     * Cipher.getInstance("AES/ECB/PKCS5Padding") but block
+     * Cipher.getInstance("AES") even when the supporting service is the same.
+     */
+    public static final class CipherTransformation implements Closeable {
+        private static final ThreadLocal<CipherContext> cipherTransformContext =
+                new ThreadLocal<>();
+        private CipherContext prevContext;
+
+        public CipherTransformation(String transformation,
+                String svcSearchKey) {
+            if (filter == null) {
+                return;
+            }
+            prevContext = cipherTransformContext.get();
+            if (!transformation.equalsIgnoreCase(svcSearchKey)) {
+                cipherTransformContext.set(new CipherContext(
+                        transformation.toUpperCase(Locale.ENGLISH),
+                        svcSearchKey));
+            } else {
+                // The transformation matches the service algorithm or alias.
+                // Set the context to null to indicate that a regular service
+                // evaluation (not based on the transformation) should be done.
+                cipherTransformContext.set(null);
+            }
+        }
+
+        /*
+         * This method is called from Provider.Service::isAllowed for a thread
+         * to get the CipherContext related to a service lookup. Returns
+         * null if 1) there is not an ongoing service lookup based on a Cipher
+         * transformation or 2) the transformation matches the service
+         * algorithm or any of its aliases. A regular service evaluation (not
+         * based on the transformation) should be done if null is returned.
+         */
+        public static CipherContext getContext() {
+            if (filter == null) {
+                return null;
+            }
+            return cipherTransformContext.get();
+        }
+
+        @Override
+        public void close() {
+            if (filter == null) {
+                return;
+            }
+            cipherTransformContext.set(prevContext);
+        }
     }
 }

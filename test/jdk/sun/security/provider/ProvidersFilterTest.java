@@ -35,8 +35,10 @@ import java.security.Signature;
 import java.util.*;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
+import javax.crypto.Mac;
 
 import sun.security.jca.GetInstance;
+import sun.security.util.KnownOIDs;
 
 import jdk.test.lib.process.Proc;
 import jdk.test.lib.util.FileUtils;
@@ -47,6 +49,7 @@ import jdk.test.lib.util.FileUtils;
  * @summary
  *   Tests the sun.security.jca.ProvidersFilter.
  * @modules java.base/sun.security.jca
+ *          java.base/sun.security.util
  * @library /test/lib
  * @run main/othervm/timeout=600 -enablesystemassertions ProvidersFilterTest
  */
@@ -102,6 +105,8 @@ public final class ProvidersFilterTest {
     static {
         cryptoCheckers.put("Cipher", (ServiceData d) -> cryptoCheck(
                 () -> Cipher.getInstance(d.svcAlgo, d.provider)));
+        cryptoCheckers.put("Mac", (ServiceData d) -> cryptoCheck(
+                () -> Mac.getInstance(d.svcAlgo, d.provider)));
         cryptoCheckers.put("Signature", (ServiceData d) -> cryptoCheck(
                 () -> Signature.getInstance(d.svcAlgo, d.provider)));
         cryptoCheckers.put("KeyGenerator", (ServiceData d) -> cryptoCheck(
@@ -558,9 +563,20 @@ public final class ProvidersFilterTest {
         }
     }
 
+    private static Provider getProviderByName(String providerName) {
+        Provider[] providers = Security.getProviders();
+        for (Provider p : providers) {
+            if (p.getName().equals(providerName)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
     private static void perSvcDataDo(String svcDataPath,
             SvcDataConsumer svcDataDo) throws Throwable {
         for (ServiceData svcData : getSvcData(Paths.get(svcDataPath))) {
+            Provider p = getProviderByName(svcData.provider);
             CryptoChecker checker = cryptoCheckers.get(svcData.svcType);
             boolean availableInCryptoCheckers = checker.check(svcData);
             List<String> allAlgos = new ArrayList<>(List.of(svcData.svcAlgo));
@@ -569,6 +585,16 @@ public final class ProvidersFilterTest {
             }
             for (String algo : allAlgos) {
                 String filter = svcData.svcType + "." + algo;
+                if (availableInCryptoCheckers &&
+                        svcData.svcType.equalsIgnoreCase("Cipher")) {
+                    Provider.Service svc = p.getService(svcData.svcType, algo);
+                    if (svc == null) {
+                        // The Security::getProviders API does not support
+                        // transformations except when the service is explicitly
+                        // registered for it.
+                        continue;
+                    }
+                }
                 boolean availableInFiltered = findSvcInFilteredProviders(
                         svcData.provider, filter);
                 if (availableInCryptoCheckers != availableInFiltered) {
@@ -617,9 +643,10 @@ public final class ProvidersFilterTest {
      */
 
     private static void testBasicFiltering(TestExecutor t) throws Throwable {
-        t.setFilter("  SunJCE.Cipher.AES  ;  !  *.*.*WeaK*;" +
-                "MyProvider.*.myStrongAlgorithm*; !NonExistentProvider  ");
-        t.addExpectedService("SunJCE", "Cipher", "AES");
+        t.setFilter("  SunJCE.Mac.HmacSHA512; SUN.MessageDigest.SHA-512  ;" +
+                "  !  *.*.*WeaK*;MyProvider.*.myStrongAlgorithm*; " +
+                "!NonExistentProvider  ");
+        t.addExpectedService("SunJCE", "Mac", "HmacSHA512");
         t.addExpectedDynamicService("MyProvider", "MyStrongAlgorithm");
         t.addExpectedDynamicService("MyProvider", "MyStrongAlgorithm2");
         t.addNotExpectedService("SunJCE", "KeyGenerator", "HmacSHA3-512");
@@ -636,6 +663,29 @@ public final class ProvidersFilterTest {
                 null);
         t.addNotExpectedDynamicService("R2_MyProvider", "weak", List.of(),
                 null);
+    }
+
+    private static void testCipherFiltering(TestExecutor t) throws Throwable {
+        t.setFilter("!*.Cipher.AES; *.Cipher.AES/CBC/PKCS5Padding; " +
+                "*.Cipher." + KnownOIDs.AES.value().replace(".", "\\.") +
+                "/OFB/NoPadding; *.Cipher.AES_128/CBC/*; " +
+                "*.Cipher.PBEWithHmacSHA512/256AndAES_128/CBC/PKCS5Padding;");
+        t.addExpectedService("SunJCE", "Cipher", "AES/CBC/PKCS5Padding");
+        t.addExpectedService("SunJCE", "Cipher", "AES/OFB/NoPadding");
+        t.addExpectedService("SunJCE", "Cipher", "AES_128/CBC/NoPadding");
+        t.addExpectedService("SunJCE", "Cipher",
+                KnownOIDs.AES.value() + "/CBC/PKCS5Padding");
+        t.addExpectedService("SunJCE", "Cipher",
+                KnownOIDs.AES.value() + "/OFB/NoPadding");
+        t.addExpectedService("SunJCE", "Cipher",
+                KnownOIDs.AES_128$CBC$NoPadding.value());
+        t.addExpectedService("SunJCE", "Cipher",
+                "PBEWithHmacSHA512/256AndAES_128/CBC/PKCS5Padding");
+        t.addNotExpectedService("SunJCE", "Cipher", "AES");
+        t.addNotExpectedService("SunJCE", "Cipher", KnownOIDs.AES.value());
+        t.addNotExpectedService("SunJCE", "Cipher", "AES/CBC/NoPadding");
+        t.addNotExpectedService("SunJCE", "Cipher",
+                "PBEWithHmacSHA512/256AndAES_128");
     }
 
     private static void testCharsEscaping(TestExecutor t) throws Throwable {
