@@ -1519,7 +1519,7 @@ jdk.tls.alpnCharset=ISO_8859_1
 #
 # Security Providers Filter (JEP TBD)
 #
-# This filter can be used to configure which services, implemented by installed
+# This filter can be used to constrain which services, implemented by installed
 # security providers, are available for use in the JCA getInstance APIs (Cipher,
 # Signature, Mac, KeyFactory, etc). Services filtering is independent of other
 # mechanisms such as jdk.tls.disabledAlgorithms, jdk.jar.disabledAlgorithms and
@@ -1593,9 +1593,9 @@ jdk.tls.alpnCharset=ISO_8859_1
 # provider whose name is abc\123, a pattern must be escaped as abc\\\\123 if passed as a
 # security property.
 #
-# In addition to characters escaping, pattern names can contain '*' wildcards to imply
-# zero or more repetitions of any character. Wildcards behave in greedy mode, trying to
-# consume as many characters as possible and backing off if necessary.
+# In addition to character escape sequences, pattern names can contain '*' wildcards to
+# imply zero or more repetitions of any character. Wildcards behave in greedy mode, trying
+# to consume as many characters as possible and backing off if necessary.
 #
 # When a service has aliases, its algorithm name and each of the aliases are independently
 # evaluated against the filter. Notice that the security provider and service type for each

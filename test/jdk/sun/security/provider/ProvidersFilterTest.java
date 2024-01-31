@@ -29,13 +29,26 @@ import java.nio.CharBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.Provider;
-import java.security.Security;
-import java.security.Signature;
+import java.security.*;
+import java.security.cert.*;
 import java.util.*;
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.Mac;
+import javax.crypto.*;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.CallbackHandler;
+import javax.security.auth.callback.NameCallback;
+import javax.security.auth.callback.PasswordCallback;
+import javax.security.auth.login.Configuration;
+import javax.security.sasl.Sasl;
+import javax.security.sasl.SaslClient;
+import javax.security.sasl.SaslServer;
+import javax.smartcardio.TerminalFactory;
+import javax.xml.crypto.dsig.Transform;
+import javax.xml.crypto.dsig.TransformService;
+import javax.xml.crypto.dsig.XMLSignatureFactory;
+import javax.xml.crypto.dsig.keyinfo.KeyInfoFactory;
 
 import sun.security.jca.GetInstance;
 import sun.security.util.KnownOIDs;
@@ -78,18 +91,18 @@ public final class ProvidersFilterTest {
     }
 
     @FunctionalInterface
-    private interface CryptoChecker {
+    private interface ServiceChecker {
         boolean check(ServiceData svcData);
     }
 
     @FunctionalInterface
-    private interface CryptoOp {
+    private interface ServiceOp {
         void doOp() throws Throwable;
     }
 
-    private static boolean cryptoCheck(CryptoOp cryptoOp) {
+    private static boolean serviceCheck(ServiceOp serviceOp) {
         try {
-            cryptoOp.doOp();
+            serviceOp.doOp();
             return true;
         } catch (Throwable t) {
             if (DEBUG) {
@@ -99,20 +112,122 @@ public final class ProvidersFilterTest {
         }
     }
 
-    private static final Map<String, CryptoChecker> cryptoCheckers =
+    private static final Map<String, ServiceChecker> serviceCheckers =
             new HashMap<>();
 
     static {
-        cryptoCheckers.put("Cipher", (ServiceData d) -> cryptoCheck(
+        serviceCheckers.put("AlgorithmParameterGenerator", (ServiceData d) ->
+                serviceCheck(() -> AlgorithmParameterGenerator
+                        .getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("AlgorithmParameters",
+                (ServiceData d) -> serviceCheck(() -> AlgorithmParameters
+                        .getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("CertificateFactory", (ServiceData d) ->
+                serviceCheck(() ->
+                        CertificateFactory.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("CertPathBuilder", (ServiceData d) -> serviceCheck(
+                () -> CertPathBuilder.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("CertPathValidator", (ServiceData d) ->
+                serviceCheck(() ->
+                        CertPathValidator.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("CertStore", (ServiceData d) -> serviceCheck(
+                () -> {
+                    if (d.svcAlgo.equals("Collection")) {
+                        CertStore.getInstance(d.svcAlgo,
+                                new CollectionCertStoreParameters(),
+                                d.provider);
+                    } else {
+                        try {
+                            CertStore.getInstance(d.svcAlgo,
+                                    new LDAPCertStoreParameters(),
+                                    d.provider);
+                        } catch (InvalidAlgorithmParameterException ignored) {
+                            // The InitialDirContext could not be created as
+                            // there is not a server in localhost but this is
+                            // an indication that the service is available:
+                            // NoSuchAlgorithmException would have been thrown
+                            // otherwise.
+                        }
+                    }
+                }));
+        serviceCheckers.put("Cipher", (ServiceData d) -> serviceCheck(
                 () -> Cipher.getInstance(d.svcAlgo, d.provider)));
-        cryptoCheckers.put("Mac", (ServiceData d) -> cryptoCheck(
-                () -> Mac.getInstance(d.svcAlgo, d.provider)));
-        cryptoCheckers.put("Signature", (ServiceData d) -> cryptoCheck(
-                () -> Signature.getInstance(d.svcAlgo, d.provider)));
-        cryptoCheckers.put("KeyGenerator", (ServiceData d) -> cryptoCheck(
+        serviceCheckers.put("Configuration", (ServiceData d) ->
+                serviceCheck(() -> Configuration
+                        .getInstance(d.svcAlgo, null, d.provider)));
+        serviceCheckers.put("KEM", (ServiceData d) -> serviceCheck(
+                () -> KEM.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("KeyAgreement", (ServiceData d) -> serviceCheck(
+                () -> KeyAgreement.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("KeyFactory", (ServiceData d) -> serviceCheck(
+                () -> KeyFactory.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("KeyGenerator", (ServiceData d) -> serviceCheck(
                 () -> KeyGenerator.getInstance(d.svcAlgo, d.provider)));
-        cryptoCheckers.put(TEST_SERVICE_TYPE,
-                (ServiceData d) -> cryptoCheck(() -> GetInstance.getInstance(
+        serviceCheckers.put("KeyInfoFactory", (ServiceData d) ->
+                serviceCheck(() -> KeyInfoFactory
+                        .getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("KeyManagerFactory", (ServiceData d) ->
+                serviceCheck(() ->
+                        KeyManagerFactory.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("KeyPairGenerator", (ServiceData d) -> serviceCheck(
+                () -> KeyPairGenerator.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("KeyStore", (ServiceData d) -> serviceCheck(
+                () -> KeyStore.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("Mac", (ServiceData d) -> serviceCheck(
+                () -> Mac.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("MessageDigest", (ServiceData d) -> serviceCheck(
+                () -> MessageDigest.getInstance(d.svcAlgo, d.provider)));
+        final CallbackHandler saslCallbackHandler = callbacks -> {
+            for (Callback cb : callbacks) {
+                if (cb instanceof PasswordCallback) {
+                    ((PasswordCallback) cb).setPassword(
+                            "password".toCharArray());
+                } else if (cb instanceof NameCallback) {
+                    ((NameCallback) cb).setName("username");
+                }
+            }
+        };
+        serviceCheckers.put("SaslClientFactory", (ServiceData d) ->
+                serviceCheck(() -> {
+                    SaslClient c = Sasl.createSaslClient(
+                            new String[] { d.svcAlgo }, "username",
+                            "ldap", "server1", Collections.emptyMap(),
+                            saslCallbackHandler);
+                    if (c == null) {
+                        throw new NoSuchAlgorithmException();
+                    }
+                }));
+        serviceCheckers.put("SaslServerFactory", (ServiceData d) ->
+                serviceCheck(() -> {
+                    SaslServer s = Sasl.createSaslServer(
+                            d.svcAlgo, "ldap", "server1",
+                            Collections.emptyMap(), saslCallbackHandler);
+                    if (s == null) {
+                        throw new NoSuchAlgorithmException();
+                    }
+                }));
+        serviceCheckers.put("SecretKeyFactory", (ServiceData d) -> serviceCheck(
+                () -> SecretKeyFactory.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("SecureRandom", (ServiceData d) -> serviceCheck(
+                () -> SecureRandom.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("Signature", (ServiceData d) -> serviceCheck(
+                () -> Signature.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("SSLContext", (ServiceData d) -> serviceCheck(
+                () -> SSLContext.getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("TerminalFactory", (ServiceData d) ->
+                serviceCheck(() -> TerminalFactory
+                        .getInstance(d.svcAlgo, null, d.provider)));
+        serviceCheckers.put("TransformService", (ServiceData d) ->
+                serviceCheck(() -> TransformService
+                        .getInstance(d.svcAlgo, "DOM", d.provider)));
+        serviceCheckers.put("TrustManagerFactory", (ServiceData d) ->
+                serviceCheck(() -> TrustManagerFactory
+                        .getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put("XMLSignatureFactory", (ServiceData d) ->
+                serviceCheck(() -> XMLSignatureFactory
+                        .getInstance(d.svcAlgo, d.provider)));
+        serviceCheckers.put(TEST_SERVICE_TYPE,
+                (ServiceData d) -> serviceCheck(() -> GetInstance.getInstance(
                         TEST_SERVICE_TYPE, TestServiceSpi.class, d.svcAlgo,
                         d.provider)));
     }
@@ -268,7 +383,7 @@ public final class ProvidersFilterTest {
          */
         private ServiceData checkSvcAvailable(ServiceData svcData)
                 throws Throwable {
-            if (!cryptoCheckers.get(svcData.svcType).check(svcData)) {
+            if (!serviceCheckers.get(svcData.svcType).check(svcData)) {
                 throw new Exception("The service " + svcData + " is not" +
                         " available without a filter.");
             }
@@ -577,7 +692,7 @@ public final class ProvidersFilterTest {
             SvcDataConsumer svcDataDo) throws Throwable {
         for (ServiceData svcData : getSvcData(Paths.get(svcDataPath))) {
             Provider p = getProviderByName(svcData.provider);
-            CryptoChecker checker = cryptoCheckers.get(svcData.svcType);
+            ServiceChecker checker = serviceCheckers.get(svcData.svcType);
             boolean availableInCryptoCheckers = checker.check(svcData);
             List<String> allAlgos = new ArrayList<>(List.of(svcData.svcAlgo));
             if (svcData instanceof DynamicServiceData dynamicSvcData) {
@@ -594,6 +709,11 @@ public final class ProvidersFilterTest {
                         // registered for it.
                         continue;
                     }
+                }
+                if (filter.indexOf(':') != -1) {
+                    // Character not supported for algorithms in
+                    // Security::getProviders.
+                    continue;
                 }
                 boolean availableInFiltered = findSvcInFilteredProviders(
                         svcData.provider, filter);
@@ -682,10 +802,89 @@ public final class ProvidersFilterTest {
         t.addExpectedService("SunJCE", "Cipher",
                 "PBEWithHmacSHA512/256AndAES_128/CBC/PKCS5Padding");
         t.addNotExpectedService("SunJCE", "Cipher", "AES");
+        t.addNotExpectedService("SunJCE", "Cipher", "AES//");
         t.addNotExpectedService("SunJCE", "Cipher", KnownOIDs.AES.value());
         t.addNotExpectedService("SunJCE", "Cipher", "AES/CBC/NoPadding");
         t.addNotExpectedService("SunJCE", "Cipher",
                 "PBEWithHmacSHA512/256AndAES_128");
+    }
+
+    private static void testAllServiceTypesFiltering(TestExecutor t)
+            throws Throwable {
+        t.setFilter("*.AlgorithmParameterGenerator.DiffieHellman; " +
+                "*.AlgorithmParameters.PBES2;" +
+                "*.CertStore.Collection; " +
+                "*.KeyAgreement.ECDH; " +
+                "*.KeyFactory.DiffieHellman; " +
+                "*.KeyGenerator.HmacSHA3-512; " +
+                "*.KeyManagerFactory.NewSunX509; " +
+                "*.KeyPairGenerator.DiffieHellman; " +
+                "*.KeyStore.PKCS12; " +
+                "*.Mac.HmacSHA512; " +
+                "*.MessageDigest.SHA-512; " +
+                "*.SaslClientFactory.EXTERNAL; " +
+                "*.SaslServerFactory.CRAM-MD5; " +
+                "*.SecretKeyFactory.PBEWithHmacSHA512/256AndAES_256; " +
+                "*.SecureRandom.SHA1PRNG; *.MessageDigest.SHA-1; " +
+                "*.Signature.EdDSA; " +
+                "*.SSLContext.TLSv1\\.3; " +
+                "*.TransformService." +
+                Transform.XPATH.replace(".", "\\.").replace(":", "\\:") + "; " +
+                "*.TrustManagerFactory.PKIX");
+
+        // Expected services
+        t.addExpectedService("SunJCE", "AlgorithmParameterGenerator",
+                "DiffieHellman");
+        t.addExpectedService("SunJCE", "AlgorithmParameters", "PBES2");
+        t.addExpectedService("SUN", "CertStore", "Collection");
+        t.addExpectedService("SunEC", "KeyAgreement", "ECDH");
+        t.addExpectedService("SunJCE", "KeyFactory", "DiffieHellman");
+        t.addExpectedService("SunJCE", "KeyGenerator", "HmacSHA3-512");
+        t.addExpectedService("SunJSSE", "KeyManagerFactory", "NewSunX509");
+        t.addExpectedService("SunJCE", "KeyPairGenerator", "DiffieHellman");
+        t.addExpectedService("SunJSSE", "KeyStore", "PKCS12");
+        t.addExpectedService("SunJCE", "Mac", "HmacSHA512");
+        t.addExpectedService("SUN", "MessageDigest", "SHA-512");
+        t.addExpectedService("SunSASL", "SaslClientFactory", "EXTERNAL");
+        t.addExpectedService("SunSASL", "SaslServerFactory", "CRAM-MD5");
+        t.addExpectedService("SunJCE", "SecretKeyFactory",
+                "PBEWithHmacSHA512/256AndAES_256");
+        t.addExpectedService("SUN", "SecureRandom", "SHA1PRNG");
+        t.addExpectedService("SunEC", "Signature", "EdDSA");
+        t.addExpectedService("SunJSSE", "SSLContext", "TLSv1.3");
+        t.addExpectedService("XMLDSig", "TransformService",
+                Transform.XPATH);
+        t.addExpectedService("SunJSSE", "TrustManagerFactory", "PKIX");
+
+        // Not expected services
+        t.addNotExpectedService("SUN", "AlgorithmParameterGenerator", "DSA");
+        t.addNotExpectedService("SUN", "AlgorithmParameters", "DSA");
+        t.addNotExpectedService("SUN", "CertificateFactory", "X.509");
+        t.addNotExpectedService("SUN", "CertPathBuilder", "PKIX");
+        t.addNotExpectedService("SUN", "CertPathValidator", "PKIX");
+        t.addNotExpectedService("JdkLDAP", "CertStore", "LDAP");
+        t.addNotExpectedService("SUN", "Configuration", "JavaLoginConfig");
+        t.addNotExpectedService("SunJCE", "KEM", "DHKEM");
+        t.addNotExpectedService("SunEC", "KeyAgreement", "X25519");
+        t.addNotExpectedService("SUN", "KeyFactory", "DSA");
+        t.addNotExpectedService("SunJCE", "KeyGenerator", "Blowfish");
+        t.addNotExpectedService("XMLDSig", "KeyInfoFactory", "DOM");
+        t.addNotExpectedService("SunJSSE", "KeyManagerFactory", "SunX509");
+        t.addNotExpectedService("SUN", "KeyPairGenerator", "DSA");
+        t.addNotExpectedService("SUN", "KeyStore", "JKS");
+        t.addNotExpectedService("SunJCE", "Mac", "HmacSHA1");
+        t.addNotExpectedService("SUN", "MessageDigest", "MD5");
+        t.addNotExpectedService("SunSASL", "SaslClientFactory", "PLAIN");
+        t.addNotExpectedService("SunSASL", "SaslServerFactory", "DIGEST-MD5");
+        t.addNotExpectedService("SunJCE", "SecretKeyFactory", "DES");
+        t.addNotExpectedService("SUN", "SecureRandom", "DRBG");
+        t.addNotExpectedService("SUN", "Signature", "SHA1withDSA");
+        t.addNotExpectedService("SunJSSE", "SSLContext", "TLSv1.2");
+        t.addNotExpectedService("SunPCSC", "TerminalFactory", "PC/SC");
+        t.addNotExpectedService("XMLDSig", "TransformService",
+                Transform.ENVELOPED);
+        t.addNotExpectedService("SunJSSE", "TrustManagerFactory", "SunX509");
+        t.addNotExpectedService("XMLDSig", "XMLSignatureFactory", "DOM");
     }
 
     private static void testCharsEscaping(TestExecutor t) throws Throwable {
