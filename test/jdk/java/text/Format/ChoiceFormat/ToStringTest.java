@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,13 +21,35 @@
  * questions.
  */
 
-// key: compiler.misc.not.applicable.types
-// key: compiler.err.prob.found.req
+/*
+ * @test
+ * @bug 8321545
+ * @summary Ensure value returned by overridden toString method is as expected
+ * @run junit ToStringTest
+ */
 
-class NotApplicableTypes {
-    void t(int i) {
-        switch (i) {
-            case Integer j -> {}
-        }
+import java.text.ChoiceFormat;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+public class ToStringTest {
+
+    // Check a normal expected value. There is no null locale test as
+    // ChoiceFormat is not localized.
+    @Test
+    public void normalValueTest() {
+        String expectedStr = "ChoiceFormat [pattern: \"1.0#foo\"]\n";
+        var c = new ChoiceFormat("1.0#foo");
+        assertEquals(expectedStr, c.toString());
+    }
+
+    // Ensure toString throws no exception when ChoiceFormat is created
+    // with empty arrays
+    @Test
+    public void oddValueTest() {
+        var c2 = new ChoiceFormat(new double[]{}, new String[]{});
+        System.out.println(c2);
     }
 }

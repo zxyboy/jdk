@@ -40,7 +40,7 @@ static void test_expected_path(const TestCase *testCase, CgroupController* ctrl)
   for (size_t dir_ix = 0;; ++dir_ix) {
     const char *expected_path = testCase->expected_path[dir_ix];
     const char *subsystem_path = ctrl->subsystem_path(dir_ix);
-    if (expected_path == NULL || subsystem_path == NULL) {
+    if (expected_path == nullptr || subsystem_path == nullptr) {
       ASSERT_EQ(expected_path, subsystem_path);
       break;
     }
@@ -51,7 +51,7 @@ static void test_expected_path(const TestCase *testCase, CgroupController* ctrl)
 TEST(cgroupTest, set_cgroupv1_subsystem_path) {
   static const char* host_expected_path[] = {
     "/sys/fs/cgroup/memory/user.slice/user-1000.slice/user@1000.service",
-    NULL
+    nullptr
   };
   TestCase host = {
     "/sys/fs/cgroup/memory",                                             // mount_path
@@ -61,7 +61,7 @@ TEST(cgroupTest, set_cgroupv1_subsystem_path) {
   };
   static const char* container_engine_expected_path[] = {
     "/sys/fs/cgroup/mem",
-    NULL
+    nullptr
   };
   TestCase container_engine = {
     "/sys/fs/cgroup/mem",                            // mount_path
@@ -83,32 +83,32 @@ TEST(cgroupTest, set_cgroupv1_subsystem_path) {
 TEST(cgroupTest, set_cgroupv2_subsystem_path) {
   static const char* at_mount_root_expected_path[] = {
     "/sys/fs/cgroup",
-    NULL
+    nullptr
   };
   TestCase at_mount_root = {
     "/sys/fs/cgroup",           // mount_path
-    NULL,                       // root_path, ignored
+    nullptr,                       // root_path, ignored
     "/",                        // cgroup_path
     at_mount_root_expected_path // expected_path
   };
   static const char* sub_path_expected_path[] = {
     "/sys/fs/cgroup/foobar",
-    NULL
+    nullptr
   };
   TestCase sub_path = {
     "/sys/fs/cgroup",       // mount_path
-    NULL,                   // root_path, ignored
+    nullptr,                // root_path, ignored
     "/foobar",              // cgroup_path
     sub_path_expected_path  // expected_path
   };
   static const char* nested_path_expected_path[] = {
     "/sys/fs/cgroup/outer/inner",
     "/sys/fs/cgroup/outer",
-    NULL
+    nullptr
   };
   TestCase nested_path = {
     "/sys/fs/cgroup",         // mount_path
-    NULL,                     // root_path, ignored
+    nullptr,                     // root_path, ignored
     "/outer/inner",           // cgroup_path
     nested_path_expected_path // expected_path
   };
@@ -116,11 +116,11 @@ TEST(cgroupTest, set_cgroupv2_subsystem_path) {
     "/sys/fs/cgroup/outer//inner",
     "/sys/fs/cgroup/outer/",
     "/sys/fs/cgroup/outer",
-    NULL
+    nullptr
   };
   TestCase nested_path_doubleslash = {
     "/sys/fs/cgroup",                     // mount_path
-    NULL,                                 // root_path, ignored
+    nullptr,                                 // root_path, ignored
     "/outer//inner",                      // cgroup_path
     nested_path_doubleslash_expected_path // expected_path
   };

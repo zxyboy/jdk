@@ -1,12 +1,10 @@
 /*
- * Copyright (c) 2001, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -23,17 +21,16 @@
  * questions.
  */
 
-package sun.net.www.protocol.jar;
-
-import java.io.*;
-import java.net.*;
-import java.util.jar.*;
-
-
-/*
- * This interface is used to call back to sun.plugin package.
- */
-public interface URLJarFileCallBack
-{
-        public JarFile retrieve (URL url) throws IOException;
+// key: compiler.err.unconditional.pattern.and.both.boolean.values
+// key: compiler.note.preview.filename
+// key: compiler.note.preview.recompile
+// options: --enable-preview --source 23
+public class UnconditionalPatternAndBothBoolean {
+    private int test(boolean sel) {
+        return switch (sel) {
+            case true -> 1;
+            case false -> 2;
+            case boolean b -> 3;
+        };
+    }
 }
