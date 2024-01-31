@@ -172,24 +172,34 @@ jlong CgroupV2Subsystem::dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size
   return total_limit;
 }
 
+jlong CgroupV2Subsystem::read_hierarchical_memsw_limit() const {
+  GET_CONTAINER_INFO_LINE(julong, _unified, "/memory.stat", "hierarchical_memsw_limit",
+                         "Hierarchical Memory and Swap Limit is : " JULONG_FORMAT, JULONG_FORMAT, hier_memswlimit)
+  return hier_memswlimit;
+}
+
 // Note that for cgroups v2 the actual limits set for swap and
 // memory live in two different files, memory.swap.max and memory.max
 // respectively. In order to properly report a cgroup v1 like
 // compound value we need to sum the two values. Setting a swap limit
 // without also setting a memory limit is not allowed.
 jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
-  char *first_val = mem_swp_limit_val(0);
-  if (first_val == nullptr) {
-    // Some container tests rely on this trace logging to happen.
-    log_trace(os, container)("Memory and Swap Limit is: %d", OSCONTAINER_ERROR);
-    // swap disabled at kernel level, treat it as no swap
-    return read_memory_limit_in_bytes();
-  }
-  jlong swap_limit = dir_iterate(&CgroupV2Subsystem::mem_swp_limit_val, first_val);
-  if (swap_limit >= 0) {
-    jlong memory_limit = read_memory_limit_in_bytes();
-    assert(memory_limit >= 0, "swap limit without memory limit?");
-    return memory_limit + swap_limit;
+  jlong swap_limit = read_hierarchical_memsw_limit();
+  if (swap_limit == OSCONTAINER_ERROR) {
+    // Older kernels did not support "hierarchical_memsw_limit" for cgroup2.
+    char *first_val = mem_swp_limit_val(0);
+    if (first_val == nullptr) {
+      // Some container tests rely on this trace logging to happen.
+      log_trace(os, container)("Memory and Swap Limit is: %d", OSCONTAINER_ERROR);
+      // swap disabled at kernel level, treat it as no swap
+      return read_memory_limit_in_bytes();
+    }
+    swap_limit = dir_iterate(&CgroupV2Subsystem::mem_swp_limit_val, first_val);
+    if (swap_limit >= 0) {
+      jlong memory_limit = read_memory_limit_in_bytes();
+      assert(memory_limit >= 0, "swap limit without memory limit?");
+      return memory_limit + swap_limit;
+    }
   }
   log_trace(os, container)("Memory and Swap Limit is: " JLONG_FORMAT, swap_limit);
   return swap_limit;
