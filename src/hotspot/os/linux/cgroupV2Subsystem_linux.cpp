@@ -208,6 +208,12 @@ char* CgroupV2Subsystem::mem_swp_current_val() {
   return os::strdup(mem_swp_current_str);
 }
 
+jlong CgroupV2Subsystem::read_hierarchical_memory_limit() const {
+  GET_CONTAINER_INFO_LINE(julong, _unified, "/memory.stat", "hierarchical_memory_limit",
+                         "Hierarchical Memory Limit is: " JULONG_FORMAT, JULONG_FORMAT, hier_memlimit)
+  return hier_memlimit;
+}
+
 /* memory_limit_in_bytes
  *
  * Return the limit of available memory for this process.
@@ -217,7 +223,11 @@ char* CgroupV2Subsystem::mem_swp_current_val() {
  *    -1 for unlimited, OSCONTAINER_ERROR for an error
  */
 jlong CgroupV2Subsystem::read_memory_limit_in_bytes() {
-  jlong total_limit = dir_iterate(&CgroupV2Subsystem::mem_limit_val);
+  jlong total_limit = read_hierarchical_memory_limit();
+  if (total_limit == OSCONTAINER_ERROR) {
+    // Older kernels did not support "hierarchical_memory_limit" for cgroup2.
+    total_limit = dir_iterate(&CgroupV2Subsystem::mem_limit_val);
+  }
   if (log_is_enabled(Trace, os, container)) {
     if (total_limit == -1) {
       log_trace(os, container)("Memory Limit is: Unlimited");

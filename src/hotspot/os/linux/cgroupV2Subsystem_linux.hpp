@@ -61,6 +61,7 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     char *pids_max_val();
 
     jlong dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size_t dir_ix), char *first_val = nullptr);
+    jlong read_hierarchical_memory_limit() const;
 
   public:
     CgroupV2Subsystem(CgroupController * unified) {
