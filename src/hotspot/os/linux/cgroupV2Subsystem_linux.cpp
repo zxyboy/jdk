@@ -184,7 +184,14 @@ jlong CgroupV2Subsystem::read_hierarchical_memsw_limit() const {
 // compound value we need to sum the two values. Setting a swap limit
 // without also setting a memory limit is not allowed.
 jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
-  jlong swap_limit = read_hierarchical_memsw_limit();
+  jlong swap_limit = OSCONTAINER_ERROR;
+  static bool hierarchical_failed = false;
+  if (!hierarchical_failed) {
+    swap_limit = read_hierarchical_memsw_limit();
+    if (swap_limit == OSCONTAINER_ERROR) {
+      hierarchical_failed = true;
+    }
+  }
   if (swap_limit == OSCONTAINER_ERROR) {
     // Older kernels did not support "hierarchical_memsw_limit" for cgroup2.
     char *first_val = mem_swp_limit_val(0);
@@ -233,7 +240,14 @@ jlong CgroupV2Subsystem::read_hierarchical_memory_limit() const {
  *    -1 for unlimited, OSCONTAINER_ERROR for an error
  */
 jlong CgroupV2Subsystem::read_memory_limit_in_bytes() {
-  jlong total_limit = read_hierarchical_memory_limit();
+  jlong total_limit = OSCONTAINER_ERROR;
+  static bool hierarchical_failed = false;
+  if (!hierarchical_failed) {
+    total_limit = read_hierarchical_memory_limit();
+    if (total_limit == OSCONTAINER_ERROR) {
+      hierarchical_failed = true;
+    }
+  }
   if (total_limit == OSCONTAINER_ERROR) {
     // Older kernels did not support "hierarchical_memory_limit" for cgroup2.
     total_limit = dir_iterate(&CgroupV2Subsystem::mem_limit_val);
