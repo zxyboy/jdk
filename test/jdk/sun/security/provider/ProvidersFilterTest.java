@@ -803,6 +803,8 @@ public final class ProvidersFilterTest {
                 "PBEWithHmacSHA512/256AndAES_128/CBC/PKCS5Padding");
         t.addNotExpectedService("SunJCE", "Cipher", "AES");
         t.addNotExpectedService("SunJCE", "Cipher", "AES//");
+        t.addNotExpectedService("SunJCE", "Cipher", KnownOIDs.AES.value() +
+                "//");
         t.addNotExpectedService("SunJCE", "Cipher", KnownOIDs.AES.value());
         t.addNotExpectedService("SunJCE", "Cipher", "AES/CBC/NoPadding");
         t.addNotExpectedService("SunJCE", "Cipher",
