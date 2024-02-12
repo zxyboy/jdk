@@ -172,8 +172,8 @@ jlong CgroupV2Subsystem::dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size
   return total_limit;
 }
 
-jlong CgroupV2Subsystem::read_hierarchical_memsw_limit() const {
-  GET_CONTAINER_INFO_LINE(julong, _unified, "/memory.stat", "hierarchical_memsw_limit",
+jlong CgroupV2Subsystem::read_hierarchical_swap_limit() const {
+  GET_CONTAINER_INFO_LINE(julong, _unified, "/memory.stat", "hierarchical_swap_limit",
                          "Hierarchical Memory and Swap Limit is : " JULONG_FORMAT, JULONG_FORMAT, hier_memswlimit)
   return hier_memswlimit;
 }
@@ -187,13 +187,13 @@ jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
   jlong swap_limit = OSCONTAINER_ERROR;
   static bool hierarchical_failed = false;
   if (!hierarchical_failed) {
-    swap_limit = read_hierarchical_memsw_limit();
+    swap_limit = read_hierarchical_swap_limit();
     if (swap_limit == OSCONTAINER_ERROR) {
       hierarchical_failed = true;
     }
   }
   if (swap_limit == OSCONTAINER_ERROR) {
-    // Older kernels did not support "hierarchical_memsw_limit" for cgroup2.
+    // Older kernels did not support "hierarchical_swap_limit" for cgroup2.
     char *first_val = mem_swp_limit_val(0);
     if (first_val == nullptr) {
       // Some container tests rely on this trace logging to happen.
