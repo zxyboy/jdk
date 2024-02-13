@@ -173,9 +173,9 @@ jlong CgroupV2Subsystem::dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size
 }
 
 jlong CgroupV2Subsystem::read_hierarchical_swap_limit() const {
-  GET_CONTAINER_INFO_LINE(julong, _unified, "/memory.stat", "hierarchical_swap_limit",
-                         "Hierarchical Memory and Swap Limit is : " JULONG_FORMAT, JULONG_FORMAT, hier_memswlimit)
-  return hier_memswlimit;
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.swap.max.effective",
+                         "Hierarchical Swap Limit is : %s", "%1023s", swap_limit_str, 1024);
+  return limit_from_str(os::strdup(swap_limit_str));
 }
 
 // Note that for cgroups v2 the actual limits set for swap and
@@ -193,7 +193,7 @@ jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
     }
   }
   if (swap_limit == OSCONTAINER_ERROR) {
-    // Older kernels did not support "hierarchical_swap_limit" for cgroup2.
+    // Older kernels did not support "memory.swap.max.effective".
     char *first_val = mem_swp_limit_val(0);
     if (first_val == nullptr) {
       // Some container tests rely on this trace logging to happen.
@@ -226,9 +226,9 @@ char* CgroupV2Subsystem::mem_swp_current_val() {
 }
 
 jlong CgroupV2Subsystem::read_hierarchical_memory_limit() const {
-  GET_CONTAINER_INFO_LINE(julong, _unified, "/memory.stat", "hierarchical_memory_limit",
-                         "Hierarchical Memory Limit is: " JULONG_FORMAT, JULONG_FORMAT, hier_memlimit)
-  return hier_memlimit;
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.max.effective",
+                         "Hierarchical Memory Limit is : %s", "%1023s", memory_limit_str, 1024);
+  return limit_from_str(os::strdup(memory_limit_str));
 }
 
 /* memory_limit_in_bytes
@@ -249,7 +249,7 @@ jlong CgroupV2Subsystem::read_memory_limit_in_bytes() {
     }
   }
   if (total_limit == OSCONTAINER_ERROR) {
-    // Older kernels did not support "hierarchical_memory_limit" for cgroup2.
+    // Older kernels did not support "memory.max.effective".
     total_limit = dir_iterate(&CgroupV2Subsystem::mem_limit_val);
   }
   if (log_is_enabled(Trace, os, container)) {

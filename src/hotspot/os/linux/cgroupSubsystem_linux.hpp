@@ -186,7 +186,7 @@ PRAGMA_DIAG_POP
 }
 
 #define GET_CONTAINER_INFO_CPTR(return_type, subsystem, dir_ix, filename, \
-                               logstring, scan_fmt, variable, bufsize)    \
+                                logstring, scan_fmt, variable, bufsize)   \
   char variable[bufsize];                                                 \
 {                                                                         \
   int err;                                                                \
