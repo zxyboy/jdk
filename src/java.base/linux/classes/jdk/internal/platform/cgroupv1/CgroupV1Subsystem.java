@@ -309,12 +309,11 @@ public class CgroupV1Subsystem implements CgroupSubsystem, CgroupV1Metrics {
     public long getMemoryLimit() {
         long retval;
         if (memory.isHierarchical()) {
-            // memory.limit_in_bytes returned unlimited, attempt
-            // hierarchical memory limit
+            // Hierarchical limit is the one used by Linux kernel, prefer it.
             String match = "hierarchical_memory_limit";
             retval = CgroupV1SubsystemController.getLongValueMatchingLine(memory,
-                                                        "memory.stat",
-                                                        match);
+                                                                          "memory.stat",
+                                                                          match);
         } else {
             retval = getLongValue(memory, "memory.limit_in_bytes");
         }

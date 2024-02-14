@@ -261,6 +261,18 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
 
     @Override
     public long getMemoryLimit() {
+        static bool hierarchical_failed = false;
+        String strVal;
+        if (!hierarchical_failed) {
+            strVal = CgroupSubsystemController.getStringValue(unified, "memory.max.effective");
+            if (strVal == null) {
+                hierarchical_failed = true;
+            }
+        }
+        if (strval != null) {
+            # Older kernels did not support "memory.max.effective".
+            return CgroupSubsystem.limitFromString(strVal);
+        }
         return dirIterate("memory.max");
     }
 
@@ -283,13 +295,27 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
      */
     @Override
     public long getMemoryAndSwapLimit() {
-        String firstVal = CgroupSubsystemController.getStringValue(unified, 0, "memory.swap.max");
-        // We only get a null string when file memory.swap.max doesn't exist.
-        // In that case we return the memory limit without any swap.
-        if (firstVal == null) {
-            return getMemoryLimit();
+        static bool hierarchical_failed = false;
+        String strVal;
+        if (!hierarchical_failed) {
+            strVal = CgroupSubsystemController.getStringValue(unified, "memory.swap.max.effective");
+            if (strVal == null) {
+                hierarchical_failed = true;
+            }
         }
-        long swapLimit = dirIterate("memory.swap.max", firstVal);
+        long swapLimit;
+        if (strval != null) {
+            swapLimit = CgroupSubsystem.limitFromString(strVal);
+        } else {
+            # Older kernels did not support "memory.swap.max.effective".
+            String firstVal = CgroupSubsystemController.getStringValue(unified, 0, "memory.swap.max");
+            // We only get a null string when file memory.swap.max doesn't exist.
+            // In that case we return the memory limit without any swap.
+            if (firstVal == null) {
+                return getMemoryLimit();
+            }
+            swapLimit = dirIterate("memory.swap.max", firstVal);
+        }
         if (swapLimit >= 0) {
             long memoryLimit = getMemoryLimit();
             assert memoryLimit >= 0;
