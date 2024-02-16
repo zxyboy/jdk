@@ -90,19 +90,19 @@ int CgroupV2Subsystem::cpu_quota() {
 }
 
 char * CgroupV2Subsystem::cpu_cpuset_cpus() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/cpuset.cpus",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/cpuset.cpus",
                      "cpuset.cpus is: %s", "%1023s", cpus, 1024);
   return os::strdup(cpus);
 }
 
 char* CgroupV2Subsystem::cpu_quota_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/cpu.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/cpu.max",
                      "Raw value for CPU quota is: %s", "%1023s %*d", quota, 1024);
   return os::strdup(quota);
 }
 
 char * CgroupV2Subsystem::cpu_cpuset_memory_nodes() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/cpuset.mems",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/cpuset.mems",
                      "cpuset.mems is: %s", "%1023s", mems, 1024);
   return os::strdup(mems);
 }
@@ -288,7 +288,7 @@ char* CgroupV2Controller::construct_path(char* mount_path, char *cgroup_path) {
 }
 
 char* CgroupV2Subsystem::pids_max_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/pids.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/pids.max",
                      "Maximum number of tasks is: %s", "%1023s", pidsmax, 1024);
   return os::strdup(pidsmax);
 }

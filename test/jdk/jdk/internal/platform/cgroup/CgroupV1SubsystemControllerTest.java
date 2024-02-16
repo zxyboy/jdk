@@ -47,7 +47,7 @@ public class CgroupV1SubsystemControllerTest {
         String mountPoint = "/somemount";
         CgroupV1SubsystemController ctrl = new CgroupV1SubsystemController(root, mountPoint);
         ctrl.setPath("/machine.slice/libpod-7145e2e7dbeab5aa96bd79beed79eda286a2d299a0ee386e704cad9f53a70979.scope");
-        assertEquals(mountPoint, ctrl.path(0));
+        assertEquals(mountPoint, ctrl.path());
     }
 
     /*
@@ -61,7 +61,7 @@ public class CgroupV1SubsystemControllerTest {
         String cgroupPath = "/subpath";
         ctrl.setPath(cgroupPath);
         String expectedPath = mountPoint + cgroupPath;
-        assertEquals(expectedPath, ctrl.path(0));
+        assertEquals(expectedPath, ctrl.path());
     }
 
     @Test
@@ -72,7 +72,7 @@ public class CgroupV1SubsystemControllerTest {
         String cgroupPath = "/foo/bar/baz/some";
         ctrl.setPath(cgroupPath);
         String expectedPath = mountPoint + "/some";
-        assertEquals(expectedPath, ctrl.path(0));
+        assertEquals(expectedPath, ctrl.path());
     }
 
 }

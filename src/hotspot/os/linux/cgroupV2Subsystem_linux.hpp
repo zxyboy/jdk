@@ -35,14 +35,17 @@ class CgroupV2Controller: public CgroupController {
     char *_cgroup_path;
 
     /* Constructed full path to the subsystem directory */
-    size_t _paths_size;
-    char **_paths;
+    char *_path;
     static char* construct_path(char* mount_path, char *cgroup_path);
 
   public:
-    CgroupV2Controller(char * mount_path, char *cgroup_path);
+    CgroupV2Controller(char * mount_path, char *cgroup_path) {
+      _mount_path = mount_path;
+      _cgroup_path = os::strdup(cgroup_path);
+      _path = construct_path(mount_path, cgroup_path);
+    }
 
-    char *subsystem_path(size_t ix) { return ix < _paths_size ? _paths[ix] : nullptr; }
+    char *subsystem_path() { return _path; }
 };
 
 class CgroupV2Subsystem: public CgroupSubsystem {

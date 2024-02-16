@@ -46,7 +46,7 @@ public class CgroupV2SubsystemControllerTest {
         String mountPoint = "/sys/fs/cgroup";
         String cgroupPath = "/";
         CgroupV2SubsystemController ctrl = new CgroupV2SubsystemController(mountPoint, cgroupPath);
-        assertEquals(mountPoint, ctrl.path(0));
+        assertEquals(mountPoint, ctrl.path());
     }
 
     /*
@@ -58,7 +58,7 @@ public class CgroupV2SubsystemControllerTest {
         String cgroupPath = "/foobar";
         CgroupV2SubsystemController ctrl = new CgroupV2SubsystemController(mountPoint, cgroupPath);
         String expectedPath = mountPoint + cgroupPath;
-        assertEquals(expectedPath, ctrl.path(0));
+        assertEquals(expectedPath, ctrl.path());
     }
 
 }

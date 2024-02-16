@@ -60,9 +60,9 @@ void delete_file(const char* filename) {
 
 class TestController : public CgroupController {
 public:
-  char* subsystem_path(size_t ix) override {
+  char* subsystem_path() override {
     // The real subsystem is in /tmp/, generaed by temp_file()
-    return ix == 0 ? (char*)"/" : nullptr;
+    return (char*)"/";
   };
 };
 
@@ -84,21 +84,20 @@ TEST(cgroupTest, SubSystemFileLineContentsMultipleLinesErrorCases) {
   int x = 0;
   char s[1024];
   int err = 0;
-  static const size_t dir_ix = 0;
 
   s[0] = '\0';
   fill_file(test_file, "foo ");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_NE(err, 0) << "Value must not be missing in key/value case";
 
   s[0] = '\0';
   fill_file(test_file, "faulty_start foo bar");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_NE(err, 0) << "Key must be at start";
 
   s[0] = '\0';
   fill_file(test_file, "foof bar");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_NE(err, 0) << "Key must be exact match";
 }
 
@@ -108,47 +107,46 @@ TEST(cgroupTest, SubSystemFileLineContentsMultipleLinesSuccessCases) {
   int x = 0;
   char s[1024];
   int err = 0;
-  static const size_t dir_ix = 0;
 
   s[0] = '\0';
   fill_file(test_file, "foo bar");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "bar") << "Incorrect!";
 
   s[0] = '\0';
   fill_file(test_file, "foo\tbar");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "bar") << "Incorrect!";
 
   s[0] = '\0';
   fill_file(test_file, "foof bar\nfoo car");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "car");
 
   s[0] = '\0';
   fill_file(test_file, "foo\ttest\nfoot car");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "test");
 
   s[0] = '\0';
   fill_file(test_file, "foo 1\nfoo car");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, "foo", "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "1");
 
   s[0] = '\0';
   fill_file(test_file, "max 10000");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, "%s %*d", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, "%s %*d", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "max");
 
   x = -3;
   fill_file(test_file, "max 10001");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, "%*s %d", &x);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, "%*s %d", &x);
   EXPECT_EQ(err, 0);
   EXPECT_EQ(x, 10001);
 }
@@ -159,38 +157,37 @@ TEST(cgroupTest, SubSystemFileLineContentsSingleLine) {
   int x = 0;
   char s[1024];
   int err = 0;
-  static const size_t dir_ix = 0;
 
   fill_file(test_file, "foo");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "foo");
 
   fill_file(test_file, "1337");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, "%d", &x);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, "%d", &x);
   EXPECT_EQ(err, 0);
   EXPECT_EQ(x, 1337) << "Wrong value for x";
 
   s[0] = '\0';
   fill_file(test_file, "1337");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, "%s", &s);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "1337");
 
   x = -1;
   fill_file(test_file, nullptr);
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, "%d", &x);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, "%d", &x);
   EXPECT_NE(err, 0) << "Empty file should've failed";
   EXPECT_EQ(x, -1) << "x was altered";
 
   jlong y;
   fill_file(test_file, "1337");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, JLONG_FORMAT, &y);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, JLONG_FORMAT, &y);
   EXPECT_EQ(err, 0);
   EXPECT_EQ(y, 1337) << "Wrong value for y";
   julong z;
   fill_file(test_file, "1337");
-  err = subsystem_file_line_contents(&my_controller, dir_ix, test_file, nullptr, JULONG_FORMAT, &z);
+  err = subsystem_file_line_contents(&my_controller, test_file, nullptr, JULONG_FORMAT, &z);
   EXPECT_EQ(err, 0);
   EXPECT_EQ(z, (julong)1337) << "Wrong value for z";
 }

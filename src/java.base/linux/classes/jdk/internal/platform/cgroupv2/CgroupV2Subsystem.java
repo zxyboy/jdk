@@ -373,7 +373,7 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
 
     private long sumTokensIOStat(Function<String, Long> mapFunc) {
         try {
-            return CgroupUtil.readFilePrivileged(Paths.get(unified.path(0), "io.stat"))
+            return CgroupUtil.readFilePrivileged(Paths.get(unified.path(), "io.stat"))
                                 .map(mapFunc)
                                 .collect(Collectors.summingLong(e -> e));
         } catch (UncheckedIOException | IOException e) {

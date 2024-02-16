@@ -62,13 +62,9 @@ public final class CgroupUtil {
             throw (Error) x;
     }
 
-    static String readStringValue(CgroupSubsystemController controller, int dir_ix, String param) throws IOException {
-        String controller_path = controller.path(dir_ix);
-        if (controller_path == null) {
-            return null;
-        }
+    static String readStringValue(CgroupSubsystemController controller, String param) throws IOException {
         PrivilegedExceptionAction<BufferedReader> pea = () ->
-                Files.newBufferedReader(Paths.get(controller_path, param));
+                Files.newBufferedReader(Paths.get(controller.path(), param));
         try (@SuppressWarnings("removal") BufferedReader bufferedReader =
                      AccessController.doPrivileged(pea)) {
             String line = bufferedReader.readLine();
