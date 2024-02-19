@@ -63,7 +63,7 @@ CgroupSubsystem* CgroupSubsystemFactory::create() {
     // Construct the subsystem, free resources and return
     // Note: any index in cg_infos will do as the path is the same for
     //       all controllers.
-    CgroupController* unified = new CgroupV2Controller(cg_infos[MEMORY_IDX]._mount_path, cg_infos[MEMORY_IDX]._cgroup_path);
+    CgroupV2Controller* unified = new CgroupV2Controller(cg_infos[MEMORY_IDX]._mount_path, cg_infos[MEMORY_IDX]._cgroup_path);
     log_debug(os, container)("Detected cgroups v2 unified hierarchy");
     cleanup(cg_infos);
     return new CgroupV2Subsystem(unified);

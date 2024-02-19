@@ -32,22 +32,33 @@ import jdk.internal.platform.CgroupSubsystemController;
 
 public class CgroupV2SubsystemController implements CgroupSubsystemController {
 
-    private final String[] paths;
+    private final String _mountPath, _cgroupPath;
+    private String path;
 
     public CgroupV2SubsystemController(String mountPath, String cgroupPath) {
-        // size is the number of slashes
-        paths = new String[cgroupPath.length() - cgroupPath.replace("/", "").length()];
-        int paths_ix = 0;
-        for (int pos; (pos = cgroupPath.lastIndexOf('/')) != -1;) {
-          paths[paths_ix++] = Paths.get(mountPath, cgroupPath).toString();
-          cgroupPath = cgroupPath.substring(0, pos);
+        _mountPath = mountPath;
+        _cgroupPath = cgroupPath;
+        path = Paths.get(mountPath, cgroupPath).toString();
+    }
+
+    public boolean trim(int dir_count) {
+        String cgroupPath = _cgroupPath;
+        assert cgroupPath.charAt(0) == '/';
+        while (dir_count-- > 0) {
+            int pos = cgroupPath.lastIndexOf('/');
+            assert pos >= 0;
+            if (pos == 0) {
+                return false;
+            }
+            cgroupPath = cgroupPath.substring(0, pos);
         }
-        assert paths_ix == paths.length;
+        path = Paths.get(_mountPath, cgroupPath).toString();
+        return true;
     }
 
     @Override
-    public String path(int dir_ix) {
-        return dir_ix < paths.length ? paths[dir_ix] : null;
+    public String path() {
+        return path;
     }
 
     public static long convertStringToLong(String strval) {

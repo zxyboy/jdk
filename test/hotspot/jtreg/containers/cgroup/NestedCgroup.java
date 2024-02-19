@@ -46,106 +46,133 @@ import java.nio.file.NoSuchFileException;
 import java.io.IOException;
 
 public class NestedCgroup {
-    public static final String CGROUP_OUTER = "jdktest" + ProcessHandle.current().pid();
-    public static final String CGROUP_INNER = "inner";
-    public static final String CONTROLLERS_PATH_OUTER = "memory:" + CGROUP_OUTER;
-    public static final String CONTROLLERS_PATH_INNER = CONTROLLERS_PATH_OUTER + "/" + CGROUP_INNER;
-    public static final String LINE_DELIM = "-".repeat(80);
-    public static final String MOUNTINFO = "/proc/self/mountinfo";
+    private static class Test {
+        public static final String CGROUP_OUTER = "jdktest" + ProcessHandle.current().pid();
+        public static final String CGROUP_INNER = "inner";
+        public static final String CONTROLLERS_PATH_OUTER = "memory:" + CGROUP_OUTER;
+        public static final String CONTROLLERS_PATH_INNER = CONTROLLERS_PATH_OUTER + "/" + CGROUP_INNER;
+        public static final String LINE_DELIM = "-".repeat(80);
+        public static final String MOUNTINFO = "/proc/self/mountinfo";
 
-    // A real usage on x86_64 fits in 39 MiB.
-    public static final int MEMORY_MAX_OUTER = 500 * 1024 * 1024;
-    public static final int MEMORY_MAX_INNER = MEMORY_MAX_OUTER * 2;
-    public static final String MEMORY_LIMIT_MB = "500.00M";
+        // A real usage on x86_64 fits in 39 MiB.
+        public static final int MEMORY_MAX_OUTER = 500 * 1024 * 1024;
+        public static final int MEMORY_MAX_INNER = MEMORY_MAX_OUTER * 2;
+        public static final String MEMORY_LIMIT_MB = "500.00M";
 
-    public static void lineDelim(String str, String label) {
-        System.err.print(LINE_DELIM + " " + label + "\n" + str);
-        if (!str.isEmpty() && !str.endsWith("\n")) {
-            System.err.println();
+        public String sysFsCgroup;
+        public String memory_max_filename;
+
+        public static void lineDelim(String str, String label) {
+            System.err.print(LINE_DELIM + " " + label + "\n" + str);
+            if (!str.isEmpty() && !str.endsWith("\n")) {
+                System.err.println();
+            }
         }
-    }
 
-    public static OutputAnalyzer pSystem(List<String> args, String failStderr, String failExplanation, String ignoreStderr) throws Exception {
-        System.err.println(LINE_DELIM + " command: " + String.join(" ",args));
-        ProcessBuilder pb = new ProcessBuilder(args);
-        Process process = pb.start();
-        OutputAnalyzer output = new OutputAnalyzer(process);
-        int exitValue = process.waitFor();
-        lineDelim(output.getStdout(), "stdout");
-        lineDelim(output.getStderr(), "stderr");
-        System.err.println(LINE_DELIM);
-        if (!failStderr.isEmpty() && output.getStderr().equals(failStderr + "\n")) {
-            throw new SkippedException(failExplanation + ": " + failStderr);
-        }
-        if (!ignoreStderr.isEmpty() && output.getStderr().equals(ignoreStderr + "\n")) {
+        public static OutputAnalyzer pSystem(List<String> args, String failStderr, String failExplanation, String ignoreStderr) throws Exception {
+            System.err.println(LINE_DELIM + " command: " + String.join(" ",args));
+            ProcessBuilder pb = new ProcessBuilder(args);
+            Process process = pb.start();
+            OutputAnalyzer output = new OutputAnalyzer(process);
+            int exitValue = process.waitFor();
+            lineDelim(output.getStdout(), "stdout");
+            lineDelim(output.getStderr(), "stderr");
+            System.err.println(LINE_DELIM);
+            if (!failStderr.isEmpty() && output.getStderr().equals(failStderr + "\n")) {
+                throw new SkippedException(failExplanation + ": " + failStderr);
+            }
+            if (!ignoreStderr.isEmpty() && output.getStderr().equals(ignoreStderr + "\n")) {
+                return output;
+            }
+            Asserts.assertEQ(0, exitValue, "Process returned unexpected exit code: " + exitValue);
             return output;
         }
-        Asserts.assertEQ(0, exitValue, "Process returned unexpected exit code: " + exitValue);
-        return output;
-    }
 
-    public static OutputAnalyzer pSystem(List<String> args) throws Exception {
-        return pSystem(args, "", "", "");
-    }
+        public static OutputAnalyzer pSystem(List<String> args) throws Exception {
+            return pSystem(args, "", "", "");
+        }
 
-    public static void main(String[] args) throws Exception {
-        List<String> cgdelete = new ArrayList<>();
-        cgdelete.add("cgdelete");
-        cgdelete.add("-r");
-        cgdelete.add("-g");
-        cgdelete.add(CONTROLLERS_PATH_OUTER);
-        try {
-            pSystem(cgdelete,
-                "cgdelete: libcgroup initialization failed: Cgroup is not mounted", "cgroup/cgroup2 is not mounted",
-                "cgdelete: cannot remove group '" + CGROUP_OUTER + "': No such file or directory");
-        } catch (IOException e) {
-            if (e.toString().equals("java.io.IOException: Cannot run program \"cgdelete\": error=2, No such file or directory")) {
-                throw new SkippedException("libcgroup-tools is not installed");
+        public Test() throws Exception {
+            List<String> cgdelete = new ArrayList<>();
+            cgdelete.add("cgdelete");
+            cgdelete.add("-r");
+            cgdelete.add("-g");
+            cgdelete.add(CONTROLLERS_PATH_OUTER);
+            try {
+                pSystem(cgdelete,
+                    "cgdelete: libcgroup initialization failed: Cgroup is not mounted", "cgroup/cgroup2 is not mounted",
+                    "cgdelete: cannot remove group '" + CGROUP_OUTER + "': No such file or directory");
+            } catch (IOException e) {
+                if (e.toString().equals("java.io.IOException: Cannot run program \"cgdelete\": error=2, No such file or directory")) {
+                    throw new SkippedException("libcgroup-tools is not installed");
+                }
+                throw e;
             }
-            throw e;
+
+            List<String> cgcreate = new ArrayList<>();
+            cgcreate.add("cgcreate");
+            cgcreate.add("-g");
+            cgcreate.add(CONTROLLERS_PATH_INNER);
+            pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed", "Missing root permission", "");
+
+            String mountInfo;
+            try {
+                mountInfo = Files.readString(Path.of(MOUNTINFO));
+            } catch (NoSuchFileException e) {
+                throw new SkippedException("Cannot open " + MOUNTINFO);
+            }
+
+            Matcher matcher = Pattern.compile("^(?:\\S+\\s+){4}(\\S+)\\s.*\\scgroup(?:(2)(?:\\s+\\S+){2}|\\s+\\S+\\s+(?:\\S*,)?memory(?:,\\S*)?)$", Pattern.MULTILINE).matcher(mountInfo);
+            if (!matcher.find()) {
+                System.err.println(mountInfo);
+                throw new SkippedException("cgroup/cgroup2 filesystem mount point not found");
+            }
+            sysFsCgroup = matcher.group(1);
+            boolean isCgroup2 = matcher.group(2) != null;
+            System.err.println(LINE_DELIM + " " + (isCgroup2 ? "cgroup2" : "cgroup1") + " mount point: " + sysFsCgroup);
+            memory_max_filename = isCgroup2 ? "memory.max" : "memory.limit_in_bytes";
+            Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + memory_max_filename), "" + MEMORY_MAX_OUTER);
+
+            hook();
+
+            // Here starts a copy of ProcessTools.createJavaProcessBuilder.
+            List<String> cgexec = new ArrayList<>();
+            cgexec.add("cgexec");
+            cgexec.add("-g");
+            cgexec.add(CONTROLLERS_PATH_INNER);
+            cgexec.add(JDKToolFinder.getJDKTool("java"));
+            cgexec.add("-cp");
+            cgexec.add(System.getProperty("java.class.path"));
+            cgexec.add("-XshowSettings:system");
+            cgexec.add("-Xlog:os+container=trace");
+            cgexec.add("-version");
+            OutputAnalyzer output = pSystem(cgexec);
+            output.shouldMatch("^ *Memory Limit: " + MEMORY_LIMIT_MB + "$");
+            output.shouldMatch("\\[trace\\]\\[os,container\\] " + (isCgroup2 ? "" : "Hierarchical ") + "Memory Limit is: " + MEMORY_MAX_OUTER + "$");
+
+            pSystem(cgdelete);
         }
 
-        List<String> cgcreate = new ArrayList<>();
-        cgcreate.add("cgcreate");
-        cgcreate.add("-g");
-        cgcreate.add(CONTROLLERS_PATH_INNER);
-        pSystem(cgcreate, "cgcreate: can't create cgroup " + CGROUP_OUTER + "/" + CGROUP_INNER + ": Cgroup, operation not allowed", "Missing root permission", "");
-
-        String mountInfo;
-        try {
-            mountInfo = Files.readString(Path.of(MOUNTINFO));
-        } catch (NoSuchFileException e) {
-            throw new SkippedException("Cannot open " + MOUNTINFO);
+        public void hook() throws IOException {
         }
-
-        Matcher matcher = Pattern.compile("^(?:\\S+\\s+){4}(\\S+)\\s.*\\scgroup(?:(2)(?:\\s+\\S+){2}|\\s+\\S+\\s+(?:\\S*,)?memory(?:,\\S*)?)$", Pattern.MULTILINE).matcher(mountInfo);
-        if (!matcher.find()) {
-            System.err.println(mountInfo);
-            throw new SkippedException("cgroup/cgroup2 filesystem mount point not found");
+    }
+    private static class TestTwoLimits extends Test {
+        public void hook() throws IOException {
+            // CgroupV1Subsystem::read_memory_limit_in_bytes considered hierarchical_memory_limit only when inner memory.limit_in_bytes is unlimited.
+            Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + CGROUP_INNER + "/" + memory_max_filename), "" + MEMORY_MAX_INNER);
         }
-        String sysFsCgroup = matcher.group(1);
-        boolean isCgroup2 = matcher.group(2) != null;
-        System.err.println(LINE_DELIM + " " + (isCgroup2 ? "cgroup2" : "cgroup1") + " mount point: " + sysFsCgroup);
-        String memory_max_filename = isCgroup2 ? "memory.max" : "memory.limit_in_bytes";
-        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + memory_max_filename), "" + MEMORY_MAX_OUTER);
-        // CgroupV1Subsystem::read_memory_limit_in_bytes considered hierarchical_memory_limit only when inner memory.limit_in_bytes is unlimited.
-        Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + CGROUP_INNER + "/" + memory_max_filename), "" + MEMORY_MAX_INNER);
-
-        // Here starts a copy of ProcessTools.createJavaProcessBuilder.
-        List<String> cgexec = new ArrayList<>();
-        cgexec.add("cgexec");
-        cgexec.add("-g");
-        cgexec.add(CONTROLLERS_PATH_INNER);
-        cgexec.add(JDKToolFinder.getJDKTool("java"));
-        cgexec.add("-cp");
-        cgexec.add(System.getProperty("java.class.path"));
-        cgexec.add("-XshowSettings:system");
-        cgexec.add("-Xlog:os+container=trace");
-        cgexec.add("-version");
-        OutputAnalyzer output = pSystem(cgexec);
-        output.shouldMatch("^ *Memory Limit: " + MEMORY_LIMIT_MB + "$");
-        output.shouldMatch("\\[trace\\]\\[os,container\\] " + (isCgroup2 ? "" : "Hierarchical ") + "Memory Limit is: " + MEMORY_MAX_OUTER + "$");
-
-        pSystem(cgdelete);
+        public TestTwoLimits() throws Exception {
+        }
+    }
+    private static class TestNoController extends Test {
+        public void hook() throws IOException {
+            Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/cgroup.subtree_control"), "-memory");
+        }
+        public TestNoController() throws Exception {
+        }
+    }
+    public static void main(String[] args) throws Exception {
+//        new TestTwoLimits();
+        new TestNoController();
     }
 }

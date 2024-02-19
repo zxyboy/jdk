@@ -33,41 +33,21 @@ typedef struct {
   const char* mount_path;
   const char* root_path;
   const char* cgroup_path;
-  const char** expected_path;
+  const char* expected_path;
 } TestCase;
 
-static void test_expected_path(const TestCase *testCase, CgroupController* ctrl) {
-  for (size_t dir_ix = 0;; ++dir_ix) {
-    const char *expected_path = testCase->expected_path[dir_ix];
-    const char *subsystem_path = ctrl->subsystem_path(dir_ix);
-    if (expected_path == nullptr || subsystem_path == nullptr) {
-      ASSERT_EQ(expected_path, subsystem_path);
-      break;
-    }
-    ASSERT_STREQ(expected_path, subsystem_path);
-  }
-}
-
 TEST(cgroupTest, set_cgroupv1_subsystem_path) {
-  static const char* host_expected_path[] = {
-    "/sys/fs/cgroup/memory/user.slice/user-1000.slice/user@1000.service",
-    nullptr
-  };
   TestCase host = {
     "/sys/fs/cgroup/memory",                                             // mount_path
     "/",                                                                 // root_path
     "/user.slice/user-1000.slice/user@1000.service",                     // cgroup_path
-    host_expected_path                                                   // expected_path
-  };
-  static const char* container_engine_expected_path[] = {
-    "/sys/fs/cgroup/mem",
-    nullptr
+    "/sys/fs/cgroup/memory/user.slice/user-1000.slice/user@1000.service" // expected_path
   };
   TestCase container_engine = {
     "/sys/fs/cgroup/mem",                            // mount_path
     "/user.slice/user-1000.slice/user@1000.service", // root_path
     "/user.slice/user-1000.slice/user@1000.service", // cgroup_path
-    container_engine_expected_path                   // expected_path
+    "/sys/fs/cgroup/mem"                             // expected_path
   };
   int length = 2;
   TestCase* testCases[] = { &host,
@@ -76,63 +56,30 @@ TEST(cgroupTest, set_cgroupv1_subsystem_path) {
     CgroupV1Controller* ctrl = new CgroupV1Controller( (char*)testCases[i]->root_path,
                                                        (char*)testCases[i]->mount_path);
     ctrl->set_subsystem_path((char*)testCases[i]->cgroup_path);
-    test_expected_path(testCases[i], ctrl);
+    ASSERT_STREQ(testCases[i]->expected_path, ctrl->subsystem_path());
   }
 }
 
 TEST(cgroupTest, set_cgroupv2_subsystem_path) {
-  static const char* at_mount_root_expected_path[] = {
-    "/sys/fs/cgroup",
-    nullptr
-  };
   TestCase at_mount_root = {
-    "/sys/fs/cgroup",           // mount_path
-    nullptr,                       // root_path, ignored
-    "/",                        // cgroup_path
-    at_mount_root_expected_path // expected_path
-  };
-  static const char* sub_path_expected_path[] = {
-    "/sys/fs/cgroup/foobar",
-    nullptr
+    "/sys/fs/cgroup",       // mount_path
+    nullptr,                // root_path, ignored
+    "/",                    // cgroup_path
+    "/sys/fs/cgroup"        // expected_path
   };
   TestCase sub_path = {
     "/sys/fs/cgroup",       // mount_path
     nullptr,                // root_path, ignored
     "/foobar",              // cgroup_path
-    sub_path_expected_path  // expected_path
+    "/sys/fs/cgroup/foobar" // expected_path
   };
-  static const char* nested_path_expected_path[] = {
-    "/sys/fs/cgroup/outer/inner",
-    "/sys/fs/cgroup/outer",
-    nullptr
-  };
-  TestCase nested_path = {
-    "/sys/fs/cgroup",         // mount_path
-    nullptr,                     // root_path, ignored
-    "/outer/inner",           // cgroup_path
-    nested_path_expected_path // expected_path
-  };
-  static const char* nested_path_doubleslash_expected_path[] = {
-    "/sys/fs/cgroup/outer//inner",
-    "/sys/fs/cgroup/outer/",
-    "/sys/fs/cgroup/outer",
-    nullptr
-  };
-  TestCase nested_path_doubleslash = {
-    "/sys/fs/cgroup",                     // mount_path
-    nullptr,                                 // root_path, ignored
-    "/outer//inner",                      // cgroup_path
-    nested_path_doubleslash_expected_path // expected_path
-  };
-  int length = 4;
+  int length = 2;
   TestCase* testCases[] = { &at_mount_root,
-                            &sub_path,
-                            &nested_path,
-                            &nested_path_doubleslash };
+                            &sub_path };
   for (int i = 0; i < length; i++) {
     CgroupV2Controller* ctrl = new CgroupV2Controller( (char*)testCases[i]->mount_path,
                                                        (char*)testCases[i]->cgroup_path);
-    test_expected_path(testCases[i], ctrl);
+    ASSERT_STREQ(testCases[i]->expected_path, ctrl->subsystem_path());
   }
 }
 

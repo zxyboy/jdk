@@ -42,14 +42,47 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
     private static volatile CgroupV2Subsystem INSTANCE;
     private static final long[] LONG_ARRAY_NOT_SUPPORTED = null;
     private static final int[] INT_ARRAY_UNAVAILABLE = null;
-    private final CgroupSubsystemController unified;
+    private final CgroupV2SubsystemController unified;
     private static final String PROVIDER_NAME = "cgroupv2";
     private static final int PER_CPU_SHARES = 1024;
     private static final Object EMPTY_STR = "";
     private static final long NO_SWAP = 0;
+    private static boolean _hierarchical_supported = false;
 
-    private CgroupV2Subsystem(CgroupSubsystemController unified) {
+    private CgroupV2Subsystem(CgroupV2SubsystemController unified) {
         this.unified = unified;
+
+        _hierarchical_supported = true;
+        if (getMemoryLimitStr() != null) {
+            return ;
+        }
+        // Older kernels did not support "memory.max.effective" (and "memory.swap.max.effective").
+        _hierarchical_supported = false;
+
+        int bestLevel = 0;
+        long memoryLimitMin = Long.MAX_VALUE;
+        long swapLimitMin = Long.MAX_VALUE;
+
+        for (int dirCount = 0; unified.trim(dirCount); ++dirCount) {
+            String memoryLimitStr = getMemoryLimitStr();
+            long memoryLimit = CgroupSubsystem.limitFromString(memoryLimitStr);
+            if (memoryLimit != CgroupSubsystem.LONG_RETVAL_UNLIMITED && memoryLimit < memoryLimitMin) {
+                memoryLimitMin = memoryLimit;
+                bestLevel = dirCount;
+            }
+            String swapLimitStr = getSwapLimitStr();
+            long swapLimit = CgroupSubsystem.limitFromString(swapLimitStr);
+            if (swapLimit != CgroupSubsystem.LONG_RETVAL_UNLIMITED && swapLimit < swapLimitMin) {
+                swapLimitMin = swapLimit;
+                bestLevel = dirCount;
+            }
+            // Never use a directory without controller files (disabled by "../cgroup.subtree_control").
+            if (memoryLimitStr == null && swapLimitStr == null && bestLevel == dirCount) {
+                ++bestLevel;
+            }
+        }
+
+        unified.trim(bestLevel);
     }
 
     private long getLongVal(String file, long defaultValue) {
@@ -76,7 +109,7 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
      */
     public static CgroupSubsystem getInstance(CgroupInfo anyController) {
         if (INSTANCE == null) {
-            CgroupSubsystemController unified = new CgroupV2SubsystemController(
+            CgroupV2SubsystemController unified = new CgroupV2SubsystemController(
                     anyController.getMountPoint(),
                     anyController.getCgroupPath());
             CgroupV2Subsystem tmpCgroupSystem = new CgroupV2Subsystem(unified);
@@ -240,40 +273,13 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
         return CgroupV2SubsystemController.getLongEntry(unified, "memory.events", "max");
     }
 
-    private long dirIterate(String param, String firstVal) {
-        long totalLimit = -1;
-        for (int dir_ix = 0;; ++dir_ix) {
-            String strLimit = dir_ix == 0 && firstVal != null ? firstVal : CgroupSubsystemController.getStringValue(unified, dir_ix, param);
-            if (strLimit == null && dir_ix > 0) {
-                break;
-            }
-            long limit = CgroupSubsystem.limitFromString(strLimit);
-            if (limit != -1 && (totalLimit == -1 || limit < totalLimit)) {
-                totalLimit = limit;
-            }
-        }
-        return totalLimit;
-    }
-
-    private long dirIterate(String param) {
-        return dirIterate(param, null);
+    private String getMemoryLimitStr() {
+        return CgroupSubsystemController.getStringValue(unified, _hierarchical_supported ? "memory.max.effective" : "memory.max");
     }
 
     @Override
     public long getMemoryLimit() {
-        static bool hierarchical_failed = false;
-        String strVal;
-        if (!hierarchical_failed) {
-            strVal = CgroupSubsystemController.getStringValue(unified, "memory.max.effective");
-            if (strVal == null) {
-                hierarchical_failed = true;
-            }
-        }
-        if (strval != null) {
-            # Older kernels did not support "memory.max.effective".
-            return CgroupSubsystem.limitFromString(strVal);
-        }
-        return dirIterate("memory.max");
+        return CgroupSubsystem.limitFromString(getMemoryLimitStr());
     }
 
     @Override
@@ -286,6 +292,10 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
         return CgroupV2SubsystemController.getLongEntry(unified, "memory.stat", "sock");
     }
 
+    private String getSwapLimitStr() {
+        return CgroupSubsystemController.getStringValue(unified, _hierarchical_supported ? "memory.swap.max.effective" : "memory.swap.max");
+    }
+
     /**
      * Note that for cgroups v2 the actual limits set for swap and
      * memory live in two different files, memory.swap.max and memory.max
@@ -295,27 +305,13 @@ public class CgroupV2Subsystem implements CgroupSubsystem {
      */
     @Override
     public long getMemoryAndSwapLimit() {
-        static bool hierarchical_failed = false;
-        String strVal;
-        if (!hierarchical_failed) {
-            strVal = CgroupSubsystemController.getStringValue(unified, "memory.swap.max.effective");
-            if (strVal == null) {
-                hierarchical_failed = true;
-            }
+        String strVal = getSwapLimitStr();
+        // We only get a null string when file memory.swap.max doesn't exist.
+        // In that case we return the memory limit without any swap.
+        if (strVal == null) {
+            return getMemoryLimit();
         }
-        long swapLimit;
-        if (strval != null) {
-            swapLimit = CgroupSubsystem.limitFromString(strVal);
-        } else {
-            # Older kernels did not support "memory.swap.max.effective".
-            String firstVal = CgroupSubsystemController.getStringValue(unified, 0, "memory.swap.max");
-            // We only get a null string when file memory.swap.max doesn't exist.
-            // In that case we return the memory limit without any swap.
-            if (firstVal == null) {
-                return getMemoryLimit();
-            }
-            swapLimit = dirIterate("memory.swap.max", firstVal);
-        }
+        long swapLimit = CgroupSubsystem.limitFromString(strVal);
         if (swapLimit >= 0) {
             long memoryLimit = getMemoryLimit();
             assert memoryLimit >= 0;

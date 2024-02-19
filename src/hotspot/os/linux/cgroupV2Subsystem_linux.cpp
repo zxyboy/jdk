@@ -152,30 +152,9 @@ jlong CgroupV2Subsystem::cache_usage_in_bytes() {
 }
 
 char* CgroupV2Subsystem::mem_soft_limit_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.low",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.low",
                          "Memory Soft Limit is: %s", "%1023s", mem_soft_limit_str, 1024);
   return os::strdup(mem_soft_limit_str);
-}
-
-jlong CgroupV2Subsystem::dir_iterate(char *(CgroupV2Subsystem::*method_ptr)(size_t dir_ix), char *first_val) {
-  jlong total_limit = -1;
-  for (size_t dir_ix = 0;; ++dir_ix) {
-    char *limit_str = dir_ix == 0 && first_val ? first_val : (this->*method_ptr)(dir_ix);
-    if (limit_str == nullptr && dir_ix) {
-      break;
-    }
-    jlong limit = limit_from_str(limit_str);
-    if (limit != -1 && (total_limit == -1 || limit < total_limit)) {
-      total_limit = limit;
-    }
-  }
-  return total_limit;
-}
-
-jlong CgroupV2Subsystem::read_hierarchical_swap_limit() const {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.swap.max.effective",
-                         "Hierarchical Swap Limit is : %s", "%1023s", swap_limit_str, 1024);
-  return limit_from_str(os::strdup(swap_limit_str));
 }
 
 // Note that for cgroups v2 the actual limits set for swap and
@@ -184,51 +163,34 @@ jlong CgroupV2Subsystem::read_hierarchical_swap_limit() const {
 // compound value we need to sum the two values. Setting a swap limit
 // without also setting a memory limit is not allowed.
 jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
-  jlong swap_limit = OSCONTAINER_ERROR;
-  static bool hierarchical_failed = false;
-  if (!hierarchical_failed) {
-    swap_limit = read_hierarchical_swap_limit();
-    if (swap_limit == OSCONTAINER_ERROR) {
-      hierarchical_failed = true;
-    }
+  char* mem_swp_limit_str = mem_swp_limit_val();
+  if (mem_swp_limit_str == nullptr) {
+    // Some container tests rely on this trace logging to happen.
+    log_trace(os, container)("Memory and Swap Limit is: %d", OSCONTAINER_ERROR);
+    // swap disabled at kernel level, treat it as no swap
+    return read_memory_limit_in_bytes();
   }
-  if (swap_limit == OSCONTAINER_ERROR) {
-    // Older kernels did not support "memory.swap.max.effective".
-    char *first_val = mem_swp_limit_val(0);
-    if (first_val == nullptr) {
-      // Some container tests rely on this trace logging to happen.
-      log_trace(os, container)("Memory and Swap Limit is: %d", OSCONTAINER_ERROR);
-      // swap disabled at kernel level, treat it as no swap
-      return read_memory_limit_in_bytes();
-    }
-    swap_limit = dir_iterate(&CgroupV2Subsystem::mem_swp_limit_val, first_val);
-    if (swap_limit >= 0) {
-      jlong memory_limit = read_memory_limit_in_bytes();
-      assert(memory_limit >= 0, "swap limit without memory limit?");
-      return memory_limit + swap_limit;
-    }
+  jlong swap_limit = limit_from_str(mem_swp_limit_str);
+  if (swap_limit >= 0) {
+    jlong memory_limit = read_memory_limit_in_bytes();
+    assert(memory_limit >= 0, "swap limit without memory limit?");
+    return memory_limit + swap_limit;
   }
   log_trace(os, container)("Memory and Swap Limit is: " JLONG_FORMAT, swap_limit);
   return swap_limit;
 }
 
-char* CgroupV2Subsystem::mem_swp_limit_val(size_t dir_ix) {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, dir_ix, "/memory.swap.max",
+char* CgroupV2Subsystem::mem_swp_limit_val() {
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, _hierarchical_supported ? "/memory.swap.max.effective" : "/memory.swap.max",
                          "Memory and Swap Limit is: %s", "%1023s", mem_swp_limit_str, 1024);
   return os::strdup(mem_swp_limit_str);
 }
 
 // memory.swap.current : total amount of swap currently used by the cgroup and its descendants
 char* CgroupV2Subsystem::mem_swp_current_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.swap.current",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.swap.current",
                          "Swap currently used is: %s", "%1023s", mem_swp_current_str, 1024);
   return os::strdup(mem_swp_current_str);
-}
-
-jlong CgroupV2Subsystem::read_hierarchical_memory_limit() const {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, 0, "/memory.max.effective",
-                         "Hierarchical Memory Limit is : %s", "%1023s", memory_limit_str, 1024);
-  return limit_from_str(os::strdup(memory_limit_str));
 }
 
 /* memory_limit_in_bytes
@@ -240,30 +202,20 @@ jlong CgroupV2Subsystem::read_hierarchical_memory_limit() const {
  *    -1 for unlimited, OSCONTAINER_ERROR for an error
  */
 jlong CgroupV2Subsystem::read_memory_limit_in_bytes() {
-  jlong total_limit = OSCONTAINER_ERROR;
-  static bool hierarchical_failed = false;
-  if (!hierarchical_failed) {
-    total_limit = read_hierarchical_memory_limit();
-    if (total_limit == OSCONTAINER_ERROR) {
-      hierarchical_failed = true;
-    }
-  }
-  if (total_limit == OSCONTAINER_ERROR) {
-    // Older kernels did not support "memory.max.effective".
-    total_limit = dir_iterate(&CgroupV2Subsystem::mem_limit_val);
-  }
+  char * mem_limit_str = mem_limit_val();
+  jlong limit = limit_from_str(mem_limit_str);
   if (log_is_enabled(Trace, os, container)) {
-    if (total_limit == -1) {
+    if (limit == -1) {
       log_trace(os, container)("Memory Limit is: Unlimited");
     } else {
-      log_trace(os, container)("Memory Limit is: " JLONG_FORMAT, total_limit);
+      log_trace(os, container)("Memory Limit is: " JLONG_FORMAT, limit);
     }
   }
-  return total_limit;
+  return limit;
 }
 
-char* CgroupV2Subsystem::mem_limit_val(size_t dir_ix) {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, dir_ix, "/memory.max",
+char* CgroupV2Subsystem::mem_limit_val() {
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, _hierarchical_supported ? "/memory.max.effective" : "/memory.max",
                          "Raw value for memory limit is: %s", "%1023s", mem_limit_str, 1024);
   return os::strdup(mem_limit_str);
 }
@@ -272,7 +224,8 @@ void CgroupV2Subsystem::print_version_specific_info(outputStream* st) {
   char* mem_swp_current_str = mem_swp_current_val();
   jlong swap_current = limit_from_str(mem_swp_current_str);
 
-  jlong swap_limit = dir_iterate(&CgroupV2Subsystem::mem_swp_limit_val);
+  char* mem_swp_limit_str = mem_swp_limit_val();
+  jlong swap_limit = limit_from_str(mem_swp_limit_str);
 
   OSContainer::print_container_helper(st, swap_current, "memory_swap_current_in_bytes");
   OSContainer::print_container_helper(st, swap_limit, "memory_swap_max_limit_in_bytes");
@@ -321,23 +274,65 @@ jlong CgroupV2Subsystem::pids_current() {
   return pids_current;
 }
 
-/* CgroupV2Controller
+/* trim
  *
- * Constructor, cgroup_path is enumerated for each directory and the basename
+ * Remove specific dir_count number of trailing _cgroup_path directories
+ *
+ * return:
+ *    whether dir_count was < number of _cgroup_path directories
+ *    false is returned if the result would be cgroup root directory
  */
-CgroupV2Controller::CgroupV2Controller(char *mount_path, char *cgroup_path) {
-  _mount_path = mount_path;
-  _cgroup_path = os::strdup(cgroup_path);
-  _paths_size = 0;
-  for (const char *cs = _cgroup_path; (cs = strchr(cs, '/')); ++cs)
-    ++_paths_size;
-  _paths = (char **)os::malloc(_paths_size * sizeof(*_paths), mtInternal);
-  assert(_cgroup_path[0] == '/', "_cgroup_path should start with a slash ('/')");
-  size_t ix = 0;
-  for (char *s; (s = strrchr(_cgroup_path, '/'));) {
-    _paths[ix++] = construct_path(mount_path, _cgroup_path);
+bool CgroupV2Controller::trim(size_t dir_count) {
+  char *cgroup_path = os::strdup(_cgroup_path);
+  assert(cgroup_path[0] == '/', "_cgroup_path should start with a slash ('/')");
+  while (dir_count--) {
+    char *s = strrchr(cgroup_path, '/');
+    assert(s, "function should have already returned");
     *s = 0;
+    if (s == cgroup_path) {
+      os::free(cgroup_path);
+      return false;
+    }
   }
-  assert(ix == _paths_size, "parsing of cgroup_path failed");
-  strcpy(_cgroup_path, cgroup_path);
+  os::free(_path);
+  _path = construct_path(_mount_path, cgroup_path);
+  os::free(cgroup_path);
+  return true;
+}
+
+CgroupV2Subsystem::CgroupV2Subsystem(CgroupV2Controller * unified) {
+  _unified = unified;
+  _memory = new CachingCgroupController(unified);
+  _cpu = new CachingCgroupController(unified);
+
+  _hierarchical_supported = true;
+  jlong memory_limit = limit_from_str(mem_limit_val());
+  if (memory_limit != OSCONTAINER_ERROR) {
+    return;
+  }
+  // Older kernels did not support "memory.max.effective" (and "memory.swap.max.effective").
+  _hierarchical_supported = false;
+
+  size_t best_level = 0;
+  jlong memory_limit_min = max_jlong;
+  jlong swap_limit_min = max_jlong;
+
+  for (size_t dir_count = 0; _unified->trim(dir_count); ++dir_count) {
+    jlong memory_limit = limit_from_str(mem_limit_val());
+    if (memory_limit != -1 && memory_limit != OSCONTAINER_ERROR && memory_limit < memory_limit_min) {
+      memory_limit_min = memory_limit;
+      best_level = dir_count;
+    }
+    jlong swap_limit = limit_from_str(mem_swp_limit_val());
+    if (swap_limit != -1 && swap_limit != OSCONTAINER_ERROR && swap_limit < swap_limit_min) {
+      swap_limit_min = swap_limit;
+      best_level = dir_count;
+    }
+    // Never use a directory without controller files (disabled by "../cgroup.subtree_control").
+    if (memory_limit == OSCONTAINER_ERROR && swap_limit == OSCONTAINER_ERROR && best_level == dir_count) {
+      ++best_level;
+    }
+  }
+
+  _unified->trim(best_level);
 }
