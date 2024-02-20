@@ -62,6 +62,7 @@ public class NestedCgroup {
 
         public static String sysFsCgroup;
         public String memory_max_filename;
+        public static boolean isCgroup2;
 
         public static void lineDelim(String str, String label) {
             System.err.print(LINE_DELIM + " " + label + "\n" + str);
@@ -149,7 +150,7 @@ public class NestedCgroup {
                 throw new SkippedException("cgroup/cgroup2 filesystem mount point not found");
             }
             sysFsCgroup = matcher.group(1);
-            boolean isCgroup2 = matcher.group(2) != null;
+            isCgroup2 = matcher.group(2) != null;
 
             System.err.println(LINE_DELIM + " " + (isCgroup2 ? "cgroup2" : "cgroup1") + " mount point: " + sysFsCgroup);
             memory_max_filename = isCgroup2 ? "memory.max" : "memory.limit_in_bytes";
@@ -204,7 +205,9 @@ public class NestedCgroup {
             case 0:
                 Test.jdkTool = JDKToolFinder.getJDKTool("java");
                 new TestTwoLimits();
-                new TestNoController();
+                if (Test.isCgroup2) {
+                    new TestNoController();
+                }
                 return;
             case 3:
                 switch (args[0]) {
