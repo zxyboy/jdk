@@ -172,7 +172,7 @@ public class NestedCgroup {
         }
     }
     public static void main(String[] args) throws Exception {
-//        new TestTwoLimits();
+        new TestTwoLimits();
         new TestNoController();
     }
 }
