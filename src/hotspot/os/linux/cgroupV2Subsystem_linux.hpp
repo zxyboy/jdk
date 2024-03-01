@@ -28,40 +28,17 @@
 #include "cgroupSubsystem_linux.hpp"
 
 class CgroupV2Controller: public CgroupController {
-  private:
-    /* the mount path of the cgroup v2 hierarchy */
-    char *_mount_path;
-    /* The cgroup path for the controller */
-    char *_cgroup_path;
-
-    /* Constructed full path to the subsystem directory */
-    char *_path;
-    static char* construct_path(char* mount_path, char *cgroup_path);
-
   public:
-    CgroupV2Controller(char * mount_path, char *cgroup_path) {
-      _mount_path = os::strdup(mount_path);
-      _cgroup_path = os::strdup(cgroup_path);
-      _path = construct_path(mount_path, cgroup_path);
-    }
-    ~CgroupV2Controller() {
-      os::free(_mount_path);
-      os::free(_cgroup_path);
-      os::free(_path);
-    }
-    bool trim(size_t dir_count);
-
-    char *subsystem_path() { return _path; }
+    CgroupV2Controller(const char *root, const char *mountpoint) : CgroupController(root, mountpoint) {}
 };
 
 class CgroupV2Subsystem: public CgroupSubsystem {
   private:
     /* One unified controller */
-    CgroupV2Controller* _unified = nullptr;
+    CgroupController* _unified = nullptr;
     /* Caching wrappers for cpu/memory metrics */
     CachingCgroupController* _memory = nullptr;
     CachingCgroupController* _cpu = nullptr;
-    bool _hierarchical_supported = false;
 
     char *mem_limit_val();
     char *mem_swp_limit_val();
@@ -71,7 +48,12 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     char *pids_max_val();
 
   public:
-    CgroupV2Subsystem(CgroupV2Controller * unified);
+    CgroupV2Subsystem(CgroupController * unified) {
+      _unified = unified;
+      _memory = new CachingCgroupController(unified);
+      _cpu = new CachingCgroupController(unified);
+      initialize_hierarchy();
+    }
 
     jlong read_memory_limit_in_bytes();
     int cpu_quota();

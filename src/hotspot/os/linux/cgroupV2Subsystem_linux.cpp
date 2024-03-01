@@ -181,7 +181,7 @@ jlong CgroupV2Subsystem::memory_and_swap_limit_in_bytes() {
 }
 
 char* CgroupV2Subsystem::mem_swp_limit_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, _hierarchical_supported ? "/memory.swap.max.effective" : "/memory.swap.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.swap.max",
                          "Memory and Swap Limit is: %s", "%1023s", mem_swp_limit_str, 1024);
   return os::strdup(mem_swp_limit_str);
 }
@@ -215,7 +215,7 @@ jlong CgroupV2Subsystem::read_memory_limit_in_bytes() {
 }
 
 char* CgroupV2Subsystem::mem_limit_val() {
-  GET_CONTAINER_INFO_CPTR(cptr, _unified, _hierarchical_supported ? "/memory.max.effective" : "/memory.max",
+  GET_CONTAINER_INFO_CPTR(cptr, _unified, "/memory.max",
                          "Raw value for memory limit is: %s", "%1023s", mem_limit_str, 1024);
   return os::strdup(mem_limit_str);
 }
@@ -229,15 +229,6 @@ void CgroupV2Subsystem::print_version_specific_info(outputStream* st) {
 
   OSContainer::print_container_helper(st, swap_current, "memory_swap_current_in_bytes");
   OSContainer::print_container_helper(st, swap_limit, "memory_swap_max_limit_in_bytes");
-}
-
-char* CgroupV2Controller::construct_path(char* mount_path, char *cgroup_path) {
-  stringStream ss;
-  ss.print_raw(mount_path);
-  if (strcmp(cgroup_path, "/") != 0) {
-    ss.print_raw(cgroup_path);
-  }
-  return os::strdup(ss.base());
 }
 
 char* CgroupV2Subsystem::pids_max_val() {
@@ -272,67 +263,4 @@ jlong CgroupV2Subsystem::pids_current() {
   GET_CONTAINER_INFO(jlong, _unified, "/pids.current",
                      "Current number of tasks is: ", JLONG_FORMAT, JLONG_FORMAT, pids_current);
   return pids_current;
-}
-
-/* trim
- *
- * Remove specific dir_count number of trailing _cgroup_path directories
- *
- * return:
- *    whether dir_count was < number of _cgroup_path directories
- *    false is returned if the result would be cgroup root directory
- */
-bool CgroupV2Controller::trim(size_t dir_count) {
-  char *cgroup_path = os::strdup(_cgroup_path);
-  assert(cgroup_path[0] == '/', "_cgroup_path should start with a slash ('/')");
-  while (dir_count--) {
-    char *s = strrchr(cgroup_path, '/');
-    assert(s, "function should have already returned");
-    *s = 0;
-    if (s == cgroup_path) {
-      os::free(cgroup_path);
-      return false;
-    }
-  }
-  os::free(_path);
-  _path = construct_path(_mount_path, cgroup_path);
-  os::free(cgroup_path);
-  return true;
-}
-
-CgroupV2Subsystem::CgroupV2Subsystem(CgroupV2Controller * unified) {
-  _unified = unified;
-  _memory = new CachingCgroupController(unified);
-  _cpu = new CachingCgroupController(unified);
-
-  _hierarchical_supported = true;
-  jlong memory_limit = limit_from_str(mem_limit_val());
-  if (memory_limit != OSCONTAINER_ERROR) {
-    return;
-  }
-  // Older kernels did not support "memory.max.effective" (and "memory.swap.max.effective").
-  _hierarchical_supported = false;
-
-  size_t best_level = 0;
-  jlong memory_limit_min = max_jlong;
-  jlong swap_limit_min = max_jlong;
-
-  for (size_t dir_count = 0; _unified->trim(dir_count); ++dir_count) {
-    jlong memory_limit = limit_from_str(mem_limit_val());
-    if (memory_limit != -1 && memory_limit != OSCONTAINER_ERROR && memory_limit < memory_limit_min) {
-      memory_limit_min = memory_limit;
-      best_level = dir_count;
-    }
-    jlong swap_limit = limit_from_str(mem_swp_limit_val());
-    if (swap_limit != -1 && swap_limit != OSCONTAINER_ERROR && swap_limit < swap_limit_min) {
-      swap_limit_min = swap_limit;
-      best_level = dir_count;
-    }
-    // Never use a directory without controller files (disabled by "../cgroup.subtree_control").
-    if (memory_limit == OSCONTAINER_ERROR && swap_limit == OSCONTAINER_ERROR && best_level == dir_count) {
-      ++best_level;
-    }
-  }
-
-  _unified->trim(best_level);
 }
