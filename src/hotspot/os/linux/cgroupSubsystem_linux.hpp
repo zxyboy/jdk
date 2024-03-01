@@ -93,7 +93,7 @@ class CgroupController: public CHeapObj<mtInternal> {
     }
 
     bool trim_path(size_t dir_count);
-    const char *subsystem_path() { return _path; }
+    virtual const char *subsystem_path() { return _path; }
 
     virtual void set_subsystem_path(const char *cgroup_path);
 };
