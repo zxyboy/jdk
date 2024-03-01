@@ -44,9 +44,10 @@ import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.nio.file.NoSuchFileException;
 import java.io.IOException;
+import java.lang.IllegalArgumentException;
 
 public class NestedCgroup {
-    private static class Test {
+    private static abstract class Test {
         public static final String CGROUP_OUTER = "jdktest" + ProcessHandle.current().pid();
         public static final String CGROUP_INNER = "inner";
         public static final String CONTROLLERS_PATH_OUTER = "memory:" + CGROUP_OUTER;
@@ -59,7 +60,7 @@ public class NestedCgroup {
         public static final int MEMORY_MAX_INNER = MEMORY_MAX_OUTER * 2;
         public static final String MEMORY_LIMIT_MB = "500.00M";
 
-        public String sysFsCgroup;
+        public static String sysFsCgroup;
         public String memory_max_filename;
 
         public static void lineDelim(String str, String label) {
@@ -90,6 +91,26 @@ public class NestedCgroup {
 
         public static OutputAnalyzer pSystem(List<String> args) throws Exception {
             return pSystem(args, "", "", "");
+        }
+
+        public static void args_add_cgexec(List<String> args) {
+            args.add("cgexec");
+            args.add("-g");
+            args.add(CONTROLLERS_PATH_INNER);
+        }
+
+        public static String jdkTool;
+
+        public static void args_add_self(List<String> args) {
+            args.add(jdkTool);
+            args.add("-cp");
+            args.add(System.getProperty("java.class.path"));
+        }
+
+        public static void args_add_self_verbose(List<String> args) {
+            args_add_self(args);
+            args.add("-XshowSettings:system");
+            args.add("-Xlog:os+container=trace");
         }
 
         public Test() throws Exception {
@@ -129,23 +150,14 @@ public class NestedCgroup {
             }
             sysFsCgroup = matcher.group(1);
             boolean isCgroup2 = matcher.group(2) != null;
+
             System.err.println(LINE_DELIM + " " + (isCgroup2 ? "cgroup2" : "cgroup1") + " mount point: " + sysFsCgroup);
             memory_max_filename = isCgroup2 ? "memory.max" : "memory.limit_in_bytes";
             Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + memory_max_filename), "" + MEMORY_MAX_OUTER);
 
-            hook();
-
             // Here starts a copy of ProcessTools.createJavaProcessBuilder.
             List<String> cgexec = new ArrayList<>();
-            cgexec.add("cgexec");
-            cgexec.add("-g");
-            cgexec.add(CONTROLLERS_PATH_INNER);
-            cgexec.add(JDKToolFinder.getJDKTool("java"));
-            cgexec.add("-cp");
-            cgexec.add(System.getProperty("java.class.path"));
-            cgexec.add("-XshowSettings:system");
-            cgexec.add("-Xlog:os+container=trace");
-            cgexec.add("-version");
+            hook(cgexec);
             OutputAnalyzer output = pSystem(cgexec);
             output.shouldMatch("^ *Memory Limit: " + MEMORY_LIMIT_MB + "$");
             output.shouldMatch("\\[trace\\]\\[os,container\\] " + (isCgroup2 ? "" : "Hierarchical ") + "Memory Limit is: " + MEMORY_MAX_OUTER + "$");
@@ -153,26 +165,55 @@ public class NestedCgroup {
             pSystem(cgdelete);
         }
 
-        public void hook() throws IOException {
-        }
+        public abstract void hook(List<String> cgexec) throws IOException;
     }
     private static class TestTwoLimits extends Test {
-        public void hook() throws IOException {
+        public void hook(List<String> cgexec) throws IOException {
             // CgroupV1Subsystem::read_memory_limit_in_bytes considered hierarchical_memory_limit only when inner memory.limit_in_bytes is unlimited.
             Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/" + CGROUP_INNER + "/" + memory_max_filename), "" + MEMORY_MAX_INNER);
+
+            args_add_cgexec(cgexec);
+            args_add_self_verbose(cgexec);
+            cgexec.add("-version");
         }
         public TestTwoLimits() throws Exception {
         }
     }
     private static class TestNoController extends Test {
-        public void hook() throws IOException {
-            Files.writeString(Path.of(sysFsCgroup + "/" + CGROUP_OUTER + "/cgroup.subtree_control"), "-memory");
+        public void hook(List<String> cgexec) throws IOException {
+            args_add_cgexec(cgexec);
+            args_add_self(cgexec);
+            cgexec.add("NestedCgroup");
+            cgexec.add("TestNoController");
+            cgexec.add(Test.jdkTool);
+            cgexec.add(sysFsCgroup + "/" + CGROUP_OUTER + "/cgroup.subtree_control");
         }
         public TestNoController() throws Exception {
         }
+        public static void child(String arg) throws Exception {
+            Files.writeString(Path.of(arg), "-memory");
+
+            List<String> self_verbose = new ArrayList<>();
+            args_add_self_verbose(self_verbose);
+            self_verbose.add("-version");
+            pSystem(self_verbose);
+        }
     }
     public static void main(String[] args) throws Exception {
-        new TestTwoLimits();
-        new TestNoController();
+        switch (args.length) {
+            case 0:
+                Test.jdkTool = JDKToolFinder.getJDKTool("java");
+                new TestTwoLimits();
+                new TestNoController();
+                return;
+            case 3:
+                switch (args[0]) {
+                    case "TestNoController":
+                        Test.jdkTool = args[1];
+                        TestNoController.child(args[2]);
+                        return;
+                }
+        }
+        throw new IllegalArgumentException();
     }
 }
