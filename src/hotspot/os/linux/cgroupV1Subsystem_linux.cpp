@@ -44,7 +44,7 @@ jlong CgroupV1Subsystem::read_memory_limit_in_bytes() {
     return (jlong)-1;
   }
   // Backward compatibility:
-  log_trace(os, container)("Memory Limit is: " JULONG_FORMAT, memlimit);
+  log_trace(os, container)("Hierarchical Memory Limit is: " JULONG_FORMAT, memlimit);
   return (jlong)memlimit;
 }
 
