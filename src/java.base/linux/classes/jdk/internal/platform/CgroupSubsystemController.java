@@ -69,7 +69,7 @@ public abstract class CgroupSubsystemController {
             if (!cgroupPath.equals("/")) {
                 path = mountPoint + cgroupPath;
                 return;
-            } 
+            }
             path = mountPoint;
             return;
         }
