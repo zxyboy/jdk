@@ -57,6 +57,8 @@
 THREAD_LOCAL Thread* Thread::_thr_current = nullptr;
 #endif
 
+volatile unsigned Thread::_hashseed = 0;
+
 // ======= Thread ========
 // Base class for all threads: VMThread, WatcherThread, ConcurrentMarkSweepThread,
 // JavaThread
@@ -103,7 +105,8 @@ Thread::Thread() {
   _vm_error_callbacks = nullptr;
 
   // thread-specific hashCode stream generator state - Marsaglia shift-xor form
-  _hashStateX = os::random();
+  assert(_hashseed != 0, "ihash seed must be initialized before the first thread starts.");
+  _hashStateX = os::random(&_hashseed);
   _hashStateY = 842502087;
   _hashStateZ = 0x8767;    // (int)(3579807591LL & 0xffff) ;
   _hashStateW = 273326509;
@@ -600,4 +603,9 @@ void Thread::SpinRelease(volatile int * adr) {
   // the ST of 0 into the lock-word which releases the lock, so fence
   // more than covers this on all platforms.
   *adr = 0;
+}
+
+void Thread::init_hashseed(unsigned seed) {
+  assert(_hashseed == 0, "call just once");
+  _hashseed = seed;
 }

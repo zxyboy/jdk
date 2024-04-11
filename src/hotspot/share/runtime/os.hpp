@@ -924,9 +924,11 @@ class os: AllStatic {
   static int   sigexitnum_pd();
 
   // random number generation
-  static int random();                     // return 32bit pseudorandom number
+  static int random();                            // return 32bit pseudorandom number. Uses CAS on internal static seed.
+  static void init_random(unsigned int initval);  // initialize internal static seed
+
+  static int random(volatile unsigned* seedptr);  // return 32bit pseudorandom number. Uses CAS on given seed location.
   static int next_random(unsigned int rand_seed); // pure version of random()
-  static void init_random(unsigned int initval);    // initialize random sequence
 
   // Structured OS Exception support
   static void os_exception_wrapper(java_call_t f, JavaValue* value, const methodHandle& method, JavaCallArguments* args, JavaThread* thread);

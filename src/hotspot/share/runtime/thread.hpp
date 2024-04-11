@@ -622,6 +622,12 @@ protected:
   jint _hashStateY;
   jint _hashStateZ;
 
+ private:
+  static volatile unsigned _hashseed;
+
+ public:
+  static void init_hashseed(unsigned seed);
+
   // Low-level leaf-lock primitives used to implement synchronization.
   // Not for general synchronization use.
   static void SpinAcquire(volatile int * Lock, const char * Name);

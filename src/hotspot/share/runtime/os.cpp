@@ -820,15 +820,19 @@ int os::next_random(unsigned int rand_seed) {
   return lo;
 }
 
-int os::random() {
+int os::random(volatile unsigned* seedptr) {
   // Make updating the random seed thread safe.
   while (true) {
-    unsigned int seed = _rand_seed;
-    unsigned int rand = next_random(seed);
-    if (Atomic::cmpxchg(&_rand_seed, seed, rand, memory_order_relaxed) == seed) {
+    unsigned seed = *seedptr;
+    unsigned rand = next_random(seed);
+    if (Atomic::cmpxchg(seedptr, seed, rand, memory_order_relaxed) == seed) {
       return static_cast<int>(rand);
     }
   }
+}
+
+int os::random() {
+  return os::random(&_rand_seed);
 }
 
 // The INITIALIZED state is distinguished from the SUSPENDED state because the
