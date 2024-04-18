@@ -508,13 +508,6 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   _number_of_threads = 0;
   _number_of_non_daemon_threads = 0;
 
-  // Initialize ihash seed
-  const unsigned seed =
-      CDSConfig::is_dumping_archive() ?
-          0x12345678 : // when dumping, use a constant seed to keep archive generation reproducible
-          (unsigned) MAX2(1, os::random());
-  Thread::init_hashseed(seed);
-
   // Initialize global data structures and create system classes in heap
   vm_init_globals();
 

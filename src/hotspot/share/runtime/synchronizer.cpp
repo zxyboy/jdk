@@ -981,15 +981,7 @@ static inline intptr_t get_next_hash(Thread* current, oop obj) {
     // Marsaglia's xor-shift scheme with thread-specific state
     // This is probably the best overall implementation -- we'll
     // likely make this the default in future releases.
-    unsigned t = current->_hashStateX;
-    t ^= (t << 11);
-    current->_hashStateX = current->_hashStateY;
-    current->_hashStateY = current->_hashStateZ;
-    current->_hashStateZ = current->_hashStateW;
-    unsigned v = current->_hashStateW;
-    v = (v ^ (v >> 19)) ^ (t ^ (t >> 8));
-    current->_hashStateW = v;
-    value = v;
+    value = current->_hashState.next_random();
   }
 
   value &= markWord::hash_mask;

@@ -617,16 +617,15 @@ protected:
   // (which can't itself be read from the signal handler if a signal hits during the Thread destructor).
   bool has_terminated()                       { return Atomic::load(&_ParkEvent) == nullptr; };
 
-  jint _hashStateW;                           // Marsaglia Shift-XOR thread-local RNG
-  jint _hashStateX;                           // thread-specific hashCode generator state
-  jint _hashStateY;
-  jint _hashStateZ;
-
- private:
-  static volatile unsigned _hashseed;
-
- public:
-  static void init_hashseed(unsigned seed);
+  // Marsaglia Shift-XOR thread-local RNG for identity_hash
+  class MarsagliaShiftRNG {
+    jint _W, _X, _Y, _Z;
+    bool _inited;
+  public:
+    MarsagliaShiftRNG();
+    unsigned next_random();
+  };
+  MarsagliaShiftRNG _hashState;
 
   // Low-level leaf-lock primitives used to implement synchronization.
   // Not for general synchronization use.
