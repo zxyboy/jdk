@@ -24,7 +24,6 @@
  */
 
 #include "precompiled.hpp"
-#include "cds/cdsConfig.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/javaThreadStatus.hpp"
 #include "gc/shared/barrierSet.hpp"
@@ -102,6 +101,12 @@ Thread::Thread() {
   set_allocated_bytes(0);
   _current_pending_raw_monitor = nullptr;
   _vm_error_callbacks = nullptr;
+
+  // thread-specific hashCode stream generator state - Marsaglia shift-xor form
+  _hashStateX = 0;
+  _hashStateY = 842502087;
+  _hashStateZ = 0x8767;    // (int)(3579807591LL & 0xffff) ;
+  _hashStateW = 273326509;
 
   // Many of the following fields are effectively final - immutable
   // Note that nascent threads can't use the Native Monitor-Mutex
@@ -595,28 +600,4 @@ void Thread::SpinRelease(volatile int * adr) {
   // the ST of 0 into the lock-word which releases the lock, so fence
   // more than covers this on all platforms.
   *adr = 0;
-}
-
-Thread::MarsagliaShiftRNG::MarsagliaShiftRNG() :
-  _W(0), _X(0), _Y(0), _Z(0), _inited(false) {}
-
-unsigned Thread::MarsagliaShiftRNG::next_random() {
-  if (!_inited) {
-    _inited = true;
-    _X = CDSConfig::is_dumping_archive() ?
-         0x12345678 : // when dumping, use a constant seed to keep archive generation reproducible
-         (unsigned) MAX2(1, os::random());
-    _Y = 842502087;
-    _Z = 0x8767;    // (int)(3579807591LL & 0xffff) ;
-    _W = 273326509;
-  }
-  unsigned t = _X;
-  t ^= (t << 11);
-  _X = _Y;
-  _Y = _Z;
-  _Z = _W;
-  unsigned v = _W;
-  v = (v ^ (v >> 19)) ^ (t ^ (t >> 8));
-  _W = v;
-  return v;
 }

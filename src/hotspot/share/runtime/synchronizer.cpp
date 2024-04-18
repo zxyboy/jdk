@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "cds/cdsConfig.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "gc/shared/collectedHeap.hpp"
 #include "jfr/jfrEvents.hpp"
@@ -979,9 +980,46 @@ static inline intptr_t get_next_hash(Thread* current, oop obj) {
     value = cast_from_oop<intptr_t>(obj);
   } else {
     // Marsaglia's xor-shift scheme with thread-specific state
-    // This is probably the best overall implementation -- we'll
-    // likely make this the default in future releases.
-    value = current->_hashState.next_random();
+    // This is probably the best overall implementation, therefore it
+    // is the default one.
+    if (current->_hashStateX == 0) {
+      // We initialize the seed lazily, the first time we generate an ihash
+      // on a thread; see comment below.
+      int initial_seed;
+      if (CDSConfig::is_dumping_archive()) {
+        // If we are dumping, we want ihashes to be deterministic. They should be
+        // as invulnerable as possible against concurrent activity happening in other
+        // threads. That rules out using os::random for initializing the seed, even
+        // if we were to set its seed constant, since concurrent threads may call
+        // os::random and "eat" from "our" random sequence.
+        // When dumping CDS archives, two threads generate ihashes: the initial
+        // java main thread, and the VMThread dumping the archive. Thankfully they don't
+        // run concurrently. but in sequence. CDS inhibits the start of any other java
+        // threads during dumping.
+        // We need to use constant, deterministic seeds, but also need to prevent
+        // these two threads from re-running the same random sequence, since that
+        // would generate colliding ihashes. Therefore, we seed the sequence with a
+        // constant that is offset by a global counter. That way, the random sequence
+        // is deterministic as long as the same threads generate ihashes in the same
+        // order.
+        static int _counter = 0x1234567;
+        initial_seed = os::next_random(_counter++);
+        log_debug(cds)("Initializing ihash seed for thread " PTR_FORMAT " with %u",
+                       p2i(current), initial_seed);
+      } else {
+        initial_seed = os::random();
+      }
+      current->_hashStateW = (jint)initial_seed;
+    }
+    unsigned t = current->_hashStateX;
+    t ^= (t << 11);
+    current->_hashStateX = current->_hashStateY;
+    current->_hashStateY = current->_hashStateZ;
+    current->_hashStateZ = current->_hashStateW;
+    unsigned v = current->_hashStateW;
+    v = (v ^ (v >> 19)) ^ (t ^ (t >> 8));
+    current->_hashStateW = v;
+    value = v;
   }
 
   value &= markWord::hash_mask;
