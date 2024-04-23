@@ -35,14 +35,24 @@
 AC_DEFUN([FLAGS_SETUP_SHARED_LIBS],
 [
   if test "x$TOOLCHAIN_TYPE" = xgcc; then
-    # Default works for linux, might work on other platforms as well.
-    SHARED_LIBRARY_FLAGS='-shared'
-    # --disable-new-dtags forces use of RPATH instead of RUNPATH for rpaths.
-    # This protects internal library dependencies within the JDK from being
-    # overridden using LD_LIBRARY_PATH. See JDK-8326891 for more information.
-    SET_EXECUTABLE_ORIGIN='-Wl,-rpath,\$$ORIGIN[$]1 -Wl,--disable-new-dtags'
-    SET_SHARED_LIBRARY_ORIGIN="-Wl,-z,origin $SET_EXECUTABLE_ORIGIN"
-    SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
+    if test "x$OPENJDK_TARGET_OS" = xwindows; then
+      # Linking is different on Windows
+      SHARED_LIBRARY_FLAGS='-shared'
+      SET_EXECUTABLE_ORIGIN=''
+      SET_SHARED_LIBRARY_ORIGIN=""
+      SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
+
+    else
+      # Default works for linux, might work on other platforms as well.
+      SHARED_LIBRARY_FLAGS='-shared'
+      # --disable-new-dtags forces use of RPATH instead of RUNPATH for rpaths.
+      # This protects internal library dependencies within the JDK from being
+      # overridden using LD_LIBRARY_PATH. See JDK-8326891 for more information.
+      SET_EXECUTABLE_ORIGIN='-Wl,-rpath,\$$ORIGIN[$]1 -Wl,--disable-new-dtags'
+      SET_SHARED_LIBRARY_ORIGIN="-Wl,-z,origin $SET_EXECUTABLE_ORIGIN"
+      SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
+
+    fi
 
   elif test "x$TOOLCHAIN_TYPE" = xclang; then
     if test "x$OPENJDK_TARGET_OS" = xmacosx; then
@@ -124,7 +134,13 @@ AC_DEFUN([FLAGS_SETUP_DEBUG_SYMBOLS],
       )
     fi
 
-    CFLAGS_DEBUG_SYMBOLS="-g -gdwarf-4"
+    if test "x$OPENJDK_TARGET_OS" = xwindows; then
+      GCODEVIEW_OR_GDWARF_FLAGS="-gcodeview"
+    elif test "x$OPENJDK_TARGET_OS" = xlinux; then
+      GCODEVIEW_OR_GDWARF_FLAGS="-g -gdwarf-4"
+    fi
+
+    CFLAGS_DEBUG_SYMBOLS="${GCODEVIEW_OR_GDWARF_FLAGS}"
     ASFLAGS_DEBUG_SYMBOLS="-g"
   elif test "x$TOOLCHAIN_TYPE" = xclang; then
     if test "x$ALLOW_ABSOLUTE_PATHS_IN_OUTPUT" = "xfalse"; then
@@ -453,7 +469,7 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
 [
   #### OS DEFINES, these should be independent on toolchain
   if test "x$OPENJDK_TARGET_OS" = xlinux; then
-    CFLAGS_OS_DEF_JVM="-DLINUX -D_FILE_OFFSET_BITS=64"
+    CFLAGS_OS_DEF_JVM="-DLINUX -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -D_REENTRANT"
     CFLAGS_OS_DEF_JDK="-D_GNU_SOURCE -D_REENTRANT -D_FILE_OFFSET_BITS=64"
   elif test "x$OPENJDK_TARGET_OS" = xmacosx; then
     CFLAGS_OS_DEF_JVM="-D_ALLBSD_SOURCE -D_DARWIN_C_SOURCE -D_XOPEN_SOURCE"
@@ -464,7 +480,12 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
   elif test "x$OPENJDK_TARGET_OS" = xbsd; then
     CFLAGS_OS_DEF_JDK="-D_ALLBSD_SOURCE"
   elif test "x$OPENJDK_TARGET_OS" = xwindows; then
-    CFLAGS_OS_DEF_JVM="-D_WINDOWS -DWIN32 -D_JNI_IMPLEMENTATION_"
+    CFLAGS_OS_DEF_JVM="-D_WINDOWS -DWIN32 -D_JNI_IMPLEMENTATION_ \
+        -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602"
+    # Access APIs for Windows 8 and above
+    # see https://docs.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt?view=msvc-170
+    CFLAGS_OS_DEF_JDK="-DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602 \
+        -DWIN32 -DIAL"
   fi
 
   CFLAGS_OS_DEF_JDK="$CFLAGS_OS_DEF_JDK -D$OPENJDK_TARGET_OS_UPPERCASE"
@@ -497,17 +518,11 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
 
   #### TOOLCHAIN DEFINES
 
-  if test "x$TOOLCHAIN_TYPE" = xgcc; then
-    ALWAYS_DEFINES_JVM="-D_GNU_SOURCE -D_REENTRANT"
-  elif test "x$TOOLCHAIN_TYPE" = xclang; then
+  if test "x$TOOLCHAIN_TYPE" = xclang; then
     ALWAYS_DEFINES_JVM="-D_GNU_SOURCE"
   elif test "x$TOOLCHAIN_TYPE" = xmicrosoft; then
-    # Access APIs for Windows 8 and above
-    # see https://docs.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt?view=msvc-170
-    ALWAYS_DEFINES_JDK="-DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602 \
-        -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE -DWIN32 -DIAL"
-    ALWAYS_DEFINES_JVM="-DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602 \
-        -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE"
+    ALWAYS_DEFINES_JVM="-D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE"
+    ALWAYS_DEFINES_JDK="-D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE"
   fi
 
   ###############################################################################
@@ -526,10 +541,19 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
     TOOLCHAIN_CFLAGS_JDK="-ffunction-sections -fsigned-char -fstack-protector"
   fi
 
-  if test "x$TOOLCHAIN_TYPE" = xgcc; then
+  if test "x$TOOLCHAIN_TYPE" = xgcc && test "x$OPENJDK_TARGET_OS" = xwindows; then
+    # gcc compiler on Windows needs -fno-stack-protector
+    TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -fno-stack-protector"
+    TOOLCHAIN_CFLAGS_JDK="-pipe -fno-stack-protector"
+  elif test "x$TOOLCHAIN_TYPE" = xgcc && test "x$OPENJDK_TARGET_OS" = xlinux; then
     TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -fstack-protector"
     TOOLCHAIN_CFLAGS_JDK="-fvisibility=hidden -pipe -fstack-protector"
-    # reduce lib size on linux in link step, this needs also special compile flags
+  fi
+
+  if test "x$TOOLCHAIN_TYPE" = xgcc; then
+    TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM"
+    TOOLCHAIN_CFLAGS_JDK="$TOOLCHAIN_CFLAGS_JDK"
+    # reduce lib size for gcc in link step, this needs also special compile flags
     # do this on s390x also for libjvm (where serviceability agent is not supported)
     if test "x$ENABLE_LINKTIME_GC" = xtrue; then
       TOOLCHAIN_CFLAGS_JDK="$TOOLCHAIN_CFLAGS_JDK -ffunction-sections -fdata-sections"
@@ -631,6 +655,11 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
     PIEFLAG="-fPIE"
   elif test "x$TOOLCHAIN_TYPE" = xmicrosoft; then
     PICFLAG=""
+  fi
+
+  if test "x$TOOLCHAIN_TYPE" = xgcc && test "x$OPENJDK_TARGET_OS" = xwindows; then
+    PICFLAG=""
+    PIEFLAG=""
   fi
 
   if test "x$TOOLCHAIN_TYPE" = xclang && test "x$OPENJDK_TARGET_OS" = xaix; then
